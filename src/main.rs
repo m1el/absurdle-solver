@@ -165,8 +165,16 @@ fn descend_path(
 ) {
     path.push(guess);
     get_rigged_response(buckets, remaining, guess);
+
+    const DEPTH_2_PRUNE_SIZE: usize = 30;
+    static PRUNED: AtomicUsize = AtomicUsize::new(0);
+    if path.len() == 2 && remaining.len() > DEPTH_2_PRUNE_SIZE {
+        PRUNED.fetch_add(words::POSSIBLE_WORDS.len() - 2, AtomicOrdering::Relaxed);
+        path.pop();
+        return;
+    }
     if path.len() < 3 {
-        for &word in words::POSSIBLE_WORDS {
+        for &word in words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS) {
             if path.contains(&word) { continue; }
             let mut remaining = remaining.clone();
             descend_path(buckets, path, &mut remaining, word);
@@ -195,14 +203,16 @@ fn descend_path(
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let count = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
         if count & 0xfffff == 0 {
-            eprintln!("processed: {} path={} remaining={}", count, response, remaining.len());
+            let pruned = PRUNED.load(AtomicOrdering::Relaxed);
+            eprintln!("processed={} pruned={} path={} remaining={}",
+                      count, pruned, response, remaining.len());
         }
     }
     path.pop();
 }
 
 fn worker() {
-    const ALL_WORDS: usize = words::POSSIBLE_WORDS.len(); // + words::IMPOSSIBLE_WORDS.len();
+    const ALL_WORDS: usize = words::POSSIBLE_WORDS.len() + words::IMPOSSIBLE_WORDS.len();
     loop {
         static POSITION: AtomicUsize = AtomicUsize::new(0);
         let position = POSITION.fetch_add(1, AtomicOrdering::SeqCst);
@@ -222,7 +232,7 @@ fn worker() {
             get_rigged_response(&mut buckets, &mut remaining, guess);
         }
         descend_path(&mut buckets, &mut path, &mut remaining, starting);
-        let starting_str = core::str::from_utf8(&starting[..]).unwrap();
+        // let starting_str = core::str::from_utf8(&starting[..]).unwrap();
         // eprintln!("explored {}", starting_str);
     }
 }
