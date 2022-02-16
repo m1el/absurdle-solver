@@ -1,161 +1,12 @@
 #![feature(iter_intersperse)]
 #![feature(bool_to_option)]
 
-use core::cmp::{Ord, PartialOrd, Reverse};
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-use std::collections::{BTreeMap};
 
+use game::{Buckets, Word, get_rigged_response};
+
+mod game;
 mod words;
-
-pub(crate) type Word = [u8; 5];
-
-/*
-const ALL_WORDS: usize = 2315;
-
-type BitsetWord = u64;
-const WORD_SIZE: usize = core::mem::size_of::<BitsetWord>() * 8;
-const BITSET_LENGTH: usize = (ALL_WORDS + WORD_SIZE - 1) / WORD_SIZE;
-
-struct WordSet {
-    bitset: [BitsetWord; BITSET_LENGTH],
-}
-
-impl WordSet {
-    fn all() -> Self {
-        let mut result = Self {
-            bitset: [!0; BITSET_LENGTH],
-        };
-        if let Some(last) = result.bitset.last_mut() {
-            *last >>= BITSET_LENGTH * WORD_SIZE - ALL_WORDS;
-        }
-        result
-    }
-
-    fn size(&self) -> usize {
-        self.bitset
-            .iter()
-            .map(|item| item.count_ones() as usize)
-            .sum::<usize>()
-    }
-
-    fn iter<'a>(&'a self) -> impl Iterator<Item=Word> + 'a {
-        self.bitset.iter()
-            .copied().enumerate()
-            .filter(|&(_index, bitset)| bitset != 0)
-            .flat_map(|(index, bitset)| {
-                println!("bs={:016x}", bitset);
-                let start = index * WORD_SIZE;
-                (0..WORD_SIZE).filter_map(move |bit| {
-                    ((bitset >> bit) & 1 != 0)
-                        .then(|| words::POSSIBLE_WORDS[bit + start])
-                })
-            })
-    }
-}
-*/
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-enum LetterScore {
-    Miss,
-    CorrectLetter,
-    CorrectPlace,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct WordScore {
-    correct_places: usize,
-    correct_letters: usize,
-    letters: [LetterScore; 5],
-}
-
-impl WordScore {
-    fn highlight_term(&self, guess: Word) -> String {
-        const ESCAPE: &str = "\x1b[";
-        let mut result = String::new();
-        for (&score, chr) in self.letters.iter().zip(guess) {
-            let color = match score {
-                LetterScore::Miss => "0m",
-                LetterScore::CorrectLetter => "33m",
-                LetterScore::CorrectPlace => "32m",
-            };
-            result.push_str(ESCAPE);
-            result.push_str(color);
-            result.push(chr as char);
-        }
-        result.push_str(ESCAPE);
-        result.push_str("0m");
-        result
-    }
-}
-
-fn guess_score(mut secret: Word, guess: Word) -> WordScore {
-    let mut letters = [LetterScore::Miss; 5];
-
-    // Prioritize finding letters that are in the correct place
-    let mut correct_places = 0;
-    for (ii, chr) in guess.into_iter().enumerate() {
-        if secret[ii] == chr {
-            // Mark letters as used in the secret word
-            secret[ii] = 0;
-            letters[ii] = LetterScore::CorrectPlace;
-            correct_places += 1;
-        }
-    }
-
-    let mut correct_letters = 0;
-    for (ii, chr) in guess.into_iter().enumerate() {
-        // Skip letters that were found to be in the right place
-        if letters[ii] == LetterScore::CorrectPlace {
-            continue;
-        }
-
-        if let Some(place) = secret.iter().position(|&s| s == chr) {
-            // Mark letters as used in the secret word
-            secret[place] = 0;
-            letters[ii] = LetterScore::CorrectLetter;
-            correct_letters += 1;
-        }
-    }
-
-    WordScore {
-        correct_letters,
-        correct_places,
-        letters,
-    }
-}
-
-type Buckets = BTreeMap<WordScore, Vec<Word>>;
-fn get_rigged_response(
-    buckets: &mut Buckets,
-    secret_words: &mut Vec<Word>,
-    guess: Word,
-) -> WordScore {
-    assert!(!secret_words.is_empty(), "The list of secret words cannot be empty");
-
-    for &word in secret_words.iter() {
-        let score = guess_score(word, guess);
-        buckets.entry(score)
-            .or_insert_with(Vec::new)
-            .push(word);
-    }
-
-    let max_key =
-        buckets.keys()
-            // Find the bucket with maximum number of entries and minimal score
-            .max_by_key(|&score| (buckets[score].len(), Reverse(score)))
-            .expect("At least one key must be present, which means max must return Some")
-            .clone();
-
-    let worst_bucket = buckets.get_mut(&max_key)
-        .expect("The key comes from the hashmap, so it must be present");
-    core::mem::swap(secret_words, worst_bucket);
-
-    for bucket in buckets.values_mut() {
-        bucket.clear();
-    }
-
-    max_key
-}
 
 fn descend_path(
     buckets: &mut Buckets,
@@ -166,7 +17,7 @@ fn descend_path(
     path.push(guess);
     get_rigged_response(buckets, remaining, guess);
 
-    const DEPTH_2_PRUNE_SIZE: usize = 30;
+    const DEPTH_2_PRUNE_SIZE: usize = 2315;
     static PRUNED: AtomicUsize = AtomicUsize::new(0);
     if path.len() == 2 && remaining.len() > DEPTH_2_PRUNE_SIZE {
         PRUNED.fetch_add(words::POSSIBLE_WORDS.len() - 2, AtomicOrdering::Relaxed);
@@ -211,7 +62,7 @@ fn descend_path(
     path.pop();
 }
 
-fn worker() {
+fn worker(start: Option<Word>) {
     const ALL_WORDS: usize = words::POSSIBLE_WORDS.len() + words::IMPOSSIBLE_WORDS.len();
     loop {
         static POSITION: AtomicUsize = AtomicUsize::new(0);
@@ -225,8 +76,12 @@ fn worker() {
             break;
         };
 
-        let mut buckets = BTreeMap::new();
+        let mut buckets = Buckets::new();
         let mut path = vec![];
+        if let Some(start) = start {
+            path.push(start);
+        }
+
         let mut remaining = words::POSSIBLE_WORDS.to_vec();
         for &guess in path.iter() {
             get_rigged_response(&mut buckets, &mut remaining, guess);
@@ -238,15 +93,18 @@ fn worker() {
 }
 
 fn main() {
-    //for word in WordSet::all().iter() {
-    //    let word_str = std::str::from_utf8(&word[..]).unwrap();
-    //    println!("{}", word_str);
-    //}
+    let word: Option<Word> = std::env::args().nth(1)
+        .and_then(|x| x.as_bytes().try_into().ok());
+
     let max_threads = std::thread::available_parallelism()
-        .expect("no paralllelism?").get();
+        .map(|x| x.get()).unwrap_or(1);
+
+    eprintln!("running with {} threads", max_threads);
     let mut threads = Vec::new();
     for _ in 0..max_threads {
-        threads.push(std::thread::spawn(worker));
+        threads.push(std::thread::spawn(move || {
+            worker(word);
+        }));
     }
     for thread in threads {
         thread.join().expect("some threads have crashed");
