@@ -92,21 +92,193 @@ fn worker(start: Option<Word>) {
     }
 }
 
+fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
+    const ALL_WORDS: usize = words::POSSIBLE_WORDS.len() + words::IMPOSSIBLE_WORDS.len();
+    let mut counts = std::collections::BTreeMap::new();
+    loop {
+        static POSITION: AtomicUsize = AtomicUsize::new(0);
+        let position = POSITION.fetch_add(1, AtomicOrdering::SeqCst);
+        let first = if position < words::POSSIBLE_WORDS.len() {
+            words::POSSIBLE_WORDS[position]
+        } else if position < ALL_WORDS {
+            let position = position - words::POSSIBLE_WORDS.len();
+            words::IMPOSSIBLE_WORDS[position]
+        } else {
+            return counts;
+        };
+
+        let mut buckets = Buckets::new();
+        let mut remaining = words::POSSIBLE_WORDS.to_vec();
+        get_rigged_response(&mut buckets, &mut remaining, first);
+
+        for &second in words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS) {
+            let mut remaining = remaining.clone();
+            get_rigged_response(&mut buckets, &mut remaining, second);
+            *counts.entry(remaining.len()).or_insert(0) += 1;
+        }
+
+        if position & 0xff == 0 {
+            eprintln!("{} / {}", position, ALL_WORDS);
+        }
+    }
+}
+
 fn main() {
-    let word: Option<Word> = std::env::args().nth(1)
-        .and_then(|x| x.as_bytes().try_into().ok());
+    let mode = "main";
+    match mode {
+        "sol-distr" => {
+            use std::collections::{BTreeMap, HashSet};
+            use std::io::BufRead;
 
-    let max_threads = std::thread::available_parallelism()
-        .map(|x| x.get()).unwrap_or(1);
+            let mut path_counts = BTreeMap::new();
+            let mut uniq_counts = BTreeMap::new();
+            let mut buckets = Buckets::new();
 
-    eprintln!("running with {} threads", max_threads);
-    let mut threads = Vec::new();
-    for _ in 0..max_threads {
-        threads.push(std::thread::spawn(move || {
-            worker(word);
-        }));
-    }
-    for thread in threads {
-        thread.join().expect("some threads have crashed");
-    }
+            let stdin = std::io::stdin();
+            for line in stdin.lock().lines() {
+                let line = line.unwrap();
+                let words = line.trim().split(',')
+                    .map(|w| w.as_bytes().try_into().expect("ivalid number of chars"))
+                    .collect::<Vec<Word>>();
+
+                let mut remaining = words::POSSIBLE_WORDS.to_vec();
+                for word in words.into_iter().take(2) {
+                    get_rigged_response(&mut buckets, &mut remaining, word);
+                }
+                *path_counts.entry(remaining.len()).or_insert(0) += 1;
+                uniq_counts.entry(remaining.len()).or_insert(HashSet::new())
+                    .insert(remaining);
+            }
+            for (count, distr) in path_counts {
+                println!("{} {}", count, distr);
+            }
+            println!("----");
+            for (count, uniq) in uniq_counts {
+                println!("{} {}", count, uniq.len());
+            }
+        }
+        "distribution" => {
+            use std::collections::BTreeMap;
+            use std::sync::{Arc, Mutex};
+            let counts = Arc::new(Mutex::new(BTreeMap::new()));
+            let max_threads = std::thread::available_parallelism()
+                .map(|x| x.get()).unwrap_or(1);
+
+            let mut threads = Vec::new();
+            for _ in 0..max_threads {
+                let counts = counts.clone();
+                threads.push(std::thread::spawn(move || {
+                    let update_counts = distr_worker();
+                    let mut counts = counts.lock().expect("cannot lock mutex");
+                    for (key, distr) in update_counts {
+                        *counts.entry(key).or_insert(0) += distr;
+                    }
+                }));
+            }
+            for thread in threads {
+                thread.join().expect("some threads have crashed");
+            }
+            let counts = counts.lock().expect("cannot lock mutex");
+            for (rem, count) in counts.iter() {
+                println!("{} {}", rem, count);
+            }
+        }
+        "filter-hard" => {
+            use std::io::BufRead;
+            use game::{guess_score, LetterScore};
+            let stdin = std::io::stdin();
+            for line in stdin.lock().lines() {
+                let line = line.unwrap();
+                let mut words = line.trim().split(',')
+                    .map(|w| w.as_bytes().try_into().expect("ivalid number of chars"))
+                    .collect::<Vec<Word>>();
+                let target = words.pop().expect("at least one word is expected");
+                let mut miss_chars = Vec::<u8>::new();
+                let mut req_chars = Vec::<u8>::new();
+                let mut req_place = Vec::<(u8, usize)>::new();
+                let mut good = true;
+                'outer: for word in words {
+                    {
+                        let mut word = word;
+                        for &mc in &miss_chars {
+                            if word.contains(&mc) {
+                                good = false;
+                                break 'outer;
+                            }
+                        }
+                        for &(rc, pos) in &req_place {
+                            if word[pos] != rc {
+                                word[pos] = 0;
+                                good = false;
+                                break 'outer;
+                            }
+                        }
+                        for &rc in &req_chars {
+                            if let Some(pos) = word.iter().position(|&c| c == rc) {
+                                word[pos] = 0;
+                            } else {
+                                good = false;
+                                break 'outer;
+                            }
+                        }
+                    }
+
+                    let score = guess_score(target, word);
+                    req_chars.clear();
+                    req_place.clear();
+                    for (index, (chr, ls)) in word.iter().copied().zip(score.letters).enumerate() {
+                        match ls {
+                            LetterScore::Miss => {
+                                miss_chars.push(chr);
+                            }
+                            LetterScore::CorrectLetter => {
+                                req_chars.push(chr);
+                            }
+                            LetterScore::CorrectPlace => {
+                                req_place.push((chr, index));
+                            }
+                        }
+                    }
+                }
+                if good {
+                    println!("{}", line.trim());
+                }
+            }
+        }
+        "bench_guess_score" => {
+            let start = std::time::Instant::now();
+            let mut void = unsafe { core::mem::zeroed() };
+            for i in 0..1_000_000_000 {
+                use game::guess_score;
+                let a = words::IMPOSSIBLE_WORDS[i & 0xfff];
+                let b = words::IMPOSSIBLE_WORDS[i & 0x1fff];
+                let score = guess_score(a, b);
+                unsafe {
+                    core::ptr::write_volatile(&mut void, score);
+                }
+            }
+            println!("1M guess_score: {:?}", start.elapsed());
+        }
+        "main" => {
+            let word: Option<Word> = std::env::args().nth(1)
+                .and_then(|x| x.as_bytes().try_into().ok());
+
+            let max_threads = std::thread::available_parallelism()
+                .map(|x| x.get()).unwrap_or(1);
+
+            eprintln!("running with {} threads", max_threads);
+            let mut threads = Vec::new();
+            for _ in 0..max_threads {
+                threads.push(std::thread::spawn(move || {
+                    worker(word);
+                }));
+            }
+            for thread in threads {
+                thread.join().expect("some threads have crashed");
+            }
+        }
+        _ => {
+            println!("invalid mode");
+         }
+    };
 }
