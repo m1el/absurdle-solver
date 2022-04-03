@@ -57,17 +57,13 @@ fn descend_path(
 }
 
 fn worker(prune: usize, start: Option<Word>) {
-    const ALL_WORDS: usize = words::POSSIBLE_WORDS.len() + words::IMPOSSIBLE_WORDS.len();
+    let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     loop {
         static POSITION: AtomicUsize = AtomicUsize::new(0);
         let position = POSITION.fetch_add(1, AtomicOrdering::SeqCst);
-        let starting = if position < words::POSSIBLE_WORDS.len() {
-            words::POSSIBLE_WORDS[position]
-        } else if position < ALL_WORDS {
-            let position = position - words::POSSIBLE_WORDS.len();
-            words::IMPOSSIBLE_WORDS[position]
-        } else {
-            break;
+        let starting = match all_words.clone().nth(position) {
+            Some(&word) => word,
+            None => break,
         };
 
         let mut buckets = Buckets::new();
@@ -88,18 +84,15 @@ fn worker(prune: usize, start: Option<Word>) {
 }
 
 fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
-    const ALL_WORDS: usize = words::POSSIBLE_WORDS.len() + words::IMPOSSIBLE_WORDS.len();
+    let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
+    let count = all_words.clone().count();
     let mut counts = std::collections::BTreeMap::new();
     loop {
         static POSITION: AtomicUsize = AtomicUsize::new(0);
         let position = POSITION.fetch_add(1, AtomicOrdering::SeqCst);
-        let first = if position < words::POSSIBLE_WORDS.len() {
-            words::POSSIBLE_WORDS[position]
-        } else if position < ALL_WORDS {
-            let position = position - words::POSSIBLE_WORDS.len();
-            words::IMPOSSIBLE_WORDS[position]
-        } else {
-            return counts;
+        let first = match all_words.clone().nth(position) {
+            Some(&word) => word,
+            None => return counts,
         };
 
         let mut buckets = Buckets::new();
@@ -113,7 +106,7 @@ fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
         }
 
         if position & 0xff == 0 {
-            eprintln!("{} / {}", position, ALL_WORDS);
+            eprintln!("{} / {}", position, count);
         }
     }
 }
