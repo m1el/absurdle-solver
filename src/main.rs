@@ -3,7 +3,7 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-use game::{Buckets, GameMode, HardMode, Word, get_rigged_response};
+use game::{Buckets, Game, HardMode, Word, get_rigged_response};
 
 mod game;
 mod words;
@@ -241,7 +241,7 @@ fn main() {
                 Ok(word)
             };
             let hard_mode = false;
-            let mut game = GameMode::new(words::POSSIBLE_WORDS.to_vec(), valid_guess, hard_mode);
+            let mut game = Game::new(words::POSSIBLE_WORDS.to_vec(), valid_guess, hard_mode);
             loop {
                 let word = loop {
                     match read_word() {

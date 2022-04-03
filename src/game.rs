@@ -128,24 +128,24 @@ impl RegularMode {
     }
 }
 
-pub enum GameMode {
+pub enum Game {
     Regular(RegularMode),
     Hard(HardMode),
 }
 
-impl GameMode {
+impl Game {
     pub fn new(remaining: Vec<Word>, allowed: CheckAllowed, hard: bool) -> Self {
         if hard {
-            GameMode::Hard(HardMode::new(remaining, allowed))
+            Game::Hard(HardMode::new(remaining, allowed))
         } else {
-            GameMode::Regular(RegularMode::new(remaining, allowed))
+            Game::Regular(RegularMode::new(remaining, allowed))
         }
 
     }
     pub fn update(&mut self, word: Word) -> Result<WordScore, String> {
         match self {
-            GameMode::Regular(regular) => regular.update(word),
-            GameMode::Hard(hard) => hard.update(word),
+            Game::Regular(regular) => regular.update(word),
+            Game::Hard(hard) => hard.update(word),
         }
     }
 }
