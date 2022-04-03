@@ -3,7 +3,7 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-use game::{Buckets, HardMode, Word, get_rigged_response};
+use game::{Buckets, GameMode, Word, get_rigged_response};
 
 mod game;
 mod words;
@@ -124,7 +124,7 @@ fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
 }
 
 fn main() {
-    let mode = "filter-hard";
+    let mode = "play";
     match mode {
         "sol-distr" => {
             use std::collections::{BTreeMap, HashSet};
@@ -192,7 +192,8 @@ fn main() {
                     .map(|w| w.as_bytes().try_into().expect("ivalid number of chars"))
                     .collect::<Vec<Word>>();
                 let target = words.pop().expect("at least one word is expected");
-                let mut hard_mode = HardMode::new(vec![target]);
+                fn all_allowed(_word: Word) -> bool { true }
+                let mut hard_mode = GameMode::new(vec![target], all_allowed, true);
                 for word in words {
                     if hard_mode.update(word).is_err() {
                         continue 'outer;
@@ -217,8 +218,10 @@ fn main() {
         }
         "play" => {
             use std::io::{Write, BufRead};
-            let mut remaining = words::POSSIBLE_WORDS.to_vec();
-            let mut buckets = Buckets::new();
+            fn valid_guess(word: Word) -> bool {
+                words::POSSIBLE_WORDS.contains(&word)
+                    || words::IMPOSSIBLE_WORDS.contains(&word)
+            }
             let stdin = std::io::stdin();
             let stdout = std::io::stdout();
             let mut buf = String::new();
@@ -230,14 +233,15 @@ fn main() {
                 stdin.lock().read_line(&mut buf)?;
                 let mut word: Word = buf.trim().as_bytes().try_into()?;
                 for chr in word.iter_mut() {
+                    if !chr.is_ascii_alphabetic() {
+                        return Err("input contains non-letter".into());
+                    }
                     *chr = chr.to_ascii_uppercase();
-                }
-                if !words::POSSIBLE_WORDS.contains(&word)
-                    && !words::IMPOSSIBLE_WORDS.contains(&word) {
-                    return Err(format!("Invalid guess: {}", buf.trim()).into());
                 }
                 Ok(word)
             };
+            let hard_mode = false;
+            let mut game = GameMode::new(words::POSSIBLE_WORDS.to_vec(), valid_guess, hard_mode);
             loop {
                 let word = loop {
                     match read_word() {
@@ -250,7 +254,13 @@ fn main() {
                         }
                     }
                 };
-                let score = get_rigged_response(&mut buckets, &mut remaining, word);
+                let score = match game.update(word) {
+                    Ok(score) => score,
+                    Err(err) => {
+                        println!("Invalid guess: {}", err);
+                        continue;
+                    }
+                };
                 println!("{}", score.highlight_term(word));
                 if score.correct_places == word.len() {
                     println!("you won!");

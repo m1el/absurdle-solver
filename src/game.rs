@@ -1,7 +1,8 @@
 use core::cmp::{Ord, PartialOrd, Reverse};
 use std::collections::{BTreeMap};
 
-pub(crate) type Word = [u8; 5];
+pub type Word = [u8; 5];
+pub type Buckets = BTreeMap<WordScore, Vec<Word>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LetterScore {
@@ -37,22 +38,19 @@ impl WordScore {
     }
 }
 
-pub trait CloneIterWord: Sized + Clone + Iterator<Item=Word> { }
-impl<T: Sized + Clone + Iterator<Item=Word>> CloneIterWord for T { }
-
-pub type AllowedWords = Box<dyn CloneIterWord>;
+pub type CheckAllowed = fn(word: Word) -> bool;
 
 pub struct HardMode {
     buckets: Buckets,
     remaining: Vec<Word>,
-    allowed: AllowedWords,
+    allowed: CheckAllowed,
     miss_chars: Vec<u8>,
     req_chars: Vec<u8>,
     req_place: Vec<(u8, usize)>,
 }
 
 impl HardMode {
-    pub fn new(remaining: Vec<Word>, allowed: AllowedWords) -> Self {
+    pub fn new(remaining: Vec<Word>, allowed: CheckAllowed) -> Self {
         Self {
             buckets: Buckets::new(),
             remaining,
@@ -63,7 +61,7 @@ impl HardMode {
         }
     }
     pub fn update(&mut self, word: Word) -> Result<WordScore, String> {
-        if !self.allowed.clone().some(|w| w == word) {
+        if !(self.allowed)(word) {
             return Err(format!("the word is not in the allowed list!"));
         }
         let mut cword = word;
@@ -111,11 +109,11 @@ impl HardMode {
 pub struct RegularMode {
     buckets: Buckets,
     remaining: Vec<Word>,
-    allowed: AllowedWords,
+    allowed: CheckAllowed,
 }
 
 impl RegularMode {
-    pub fn new(remaining: Vec<Word>, allowed: AllowedWords) -> Self {
+    pub fn new(remaining: Vec<Word>, allowed: CheckAllowed) -> Self {
         Self {
             buckets: Buckets::new(),
             remaining,
@@ -123,7 +121,7 @@ impl RegularMode {
         }
     }
     pub fn update(&mut self, word: Word) -> Result<WordScore, String> {
-        if !self.allowed.clone().some(|w| w == word) {
+        if !(self.allowed)(word) {
             return Err(format!("the word is not in the allowed list!"));
         }
         Ok(get_rigged_response(&mut self.buckets, &mut self.remaining, word))
@@ -136,12 +134,19 @@ pub enum GameMode {
 }
 
 impl GameMode {
-    pub fn new_regular(remaining: Vec<Word>, allowed: AllowedWords) -> Self {
-        GameMode::Regular(RegularMode::new(remaining, allowed))
+    pub fn new(remaining: Vec<Word>, allowed: CheckAllowed, hard: bool) -> Self {
+        if hard {
+            GameMode::Hard(HardMode::new(remaining, allowed))
+        } else {
+            GameMode::Regular(RegularMode::new(remaining, allowed))
+        }
 
     }
-    pub fn new_hard(remaining: Vec<Word>, allowed: AllowedWords) -> Self {
-        GameMode::Hard(HardMode::new(remaining, allowed))
+    pub fn update(&mut self, word: Word) -> Result<WordScore, String> {
+        match self {
+            GameMode::Regular(regular) => regular.update(word),
+            GameMode::Hard(hard) => hard.update(word),
+        }
     }
 }
 
@@ -181,7 +186,6 @@ pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
     }
 }
 
-pub type Buckets = BTreeMap<WordScore, Vec<Word>>;
 pub fn get_rigged_response(
     buckets: &mut Buckets,
     secret_words: &mut Vec<Word>,
