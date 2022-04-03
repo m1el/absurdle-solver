@@ -110,7 +110,7 @@ fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
         let mut remaining = words::POSSIBLE_WORDS.to_vec();
         get_rigged_response(&mut buckets, &mut remaining, first);
 
-        for &second in words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS) {
+        for &second in all_words.clone() {
             let mut remaining = remaining.clone();
             get_rigged_response(&mut buckets, &mut remaining, second);
             *counts.entry(remaining.len()).or_insert(0) += 1;
@@ -299,7 +299,8 @@ fn highlight_term(score: WordScore, guess: Word) -> String {
 fn play(hard_mode: bool) {
     use std::io::{BufRead, Write};
     fn valid_guess(word: Word) -> bool {
-        words::POSSIBLE_WORDS.contains(&word) || words::IMPOSSIBLE_WORDS.contains(&word)
+        words::POSSIBLE_WORDS.contains(&word)
+            || words::IMPOSSIBLE_WORDS.contains(&word)
     }
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
