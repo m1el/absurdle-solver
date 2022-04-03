@@ -3,7 +3,7 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-use game::{Buckets, GameMode, Word, get_rigged_response};
+use game::{Buckets, GameMode, HardMode, Word, get_rigged_response};
 
 mod game;
 mod words;
@@ -193,7 +193,7 @@ fn main() {
                     .collect::<Vec<Word>>();
                 let target = words.pop().expect("at least one word is expected");
                 fn all_allowed(_word: Word) -> bool { true }
-                let mut hard_mode = GameMode::new(vec![target], all_allowed, true);
+                let mut hard_mode = HardMode::new(vec![target], all_allowed);
                 for word in words {
                     if hard_mode.update(word).is_err() {
                         continue 'outer;
