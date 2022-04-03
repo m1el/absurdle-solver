@@ -116,7 +116,7 @@ fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
 }
 
 fn solution_distribution() {
-    use std::collections::{BTreeMap, HashSet};
+    use std::collections::{BTreeMap, BTreeSet};
     use std::io::BufRead;
 
     let mut path_counts = BTreeMap::new();
@@ -134,7 +134,7 @@ fn solution_distribution() {
             get_rigged_response(&mut buckets, &mut remaining, word);
         }
         *path_counts.entry(remaining.len()).or_insert(0) += 1;
-        uniq_counts.entry(remaining.len()).or_insert_with(HashSet::new)
+        uniq_counts.entry(remaining.len()).or_insert_with(BTreeSet::new)
             .insert(remaining);
     }
     for (count, distr) in path_counts {
