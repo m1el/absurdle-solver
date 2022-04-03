@@ -5,6 +5,18 @@ use game::{Buckets, Game, WordScore, LetterScore, HardMode, Word, get_rigged_res
 mod game;
 mod words;
 
+fn path_to_string(path: &[Word]) -> String {
+    let mut response = String::with_capacity(32);
+    for chunk in path {
+        let chunk_str = std::str::from_utf8(&chunk[..]).unwrap();
+        if response.len() > 1 {
+            response.push(',');
+        }
+        response.push_str(chunk_str);
+    }
+    response
+}
+
 fn descend_path(
     buckets: &mut Buckets,
     path: &mut Vec<Word>,
@@ -32,38 +44,17 @@ fn descend_path(
             sink(&path);
             path.pop();
         }
-        let mut response = String::with_capacity(32);
-        for chunk in path.iter() {
-            let chunk_str = std::str::from_utf8(&chunk[..]).unwrap();
-            if response.len() > 1 {
-                response.push(',');
-            }
-            response.push_str(chunk_str);
-        }
-
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let count = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
         if count & 0xfffff == 0 {
             let pruned = PRUNED.load(AtomicOrdering::Relaxed);
-            eprintln!("processed={} pruned={} path={} remaining={}",
-                      count, pruned, response, remaining.len());
+            eprintln!("processed={} pruned={} last_path={} remaining={}",
+                      count, pruned, path_to_string(path), remaining.len());
         }
     }
 }
 
-fn print_path(path: &[Word]) {
-    let mut response = String::with_capacity(32);
-    for chunk in path {
-        let chunk_str = std::str::from_utf8(&chunk[..]).unwrap();
-        if response.len() > 1 {
-            response.push(',');
-        }
-        response.push_str(chunk_str);
-    }
-    println!("SOLUTION = {}", response);
-}
-
-fn worker(prune: usize, start: Option<Word>) {
+fn solution_worker(prune: usize, start: Option<Word>) {
     let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     loop {
         static POSITION: AtomicUsize = AtomicUsize::new(0);
@@ -83,6 +74,10 @@ fn worker(prune: usize, start: Option<Word>) {
         let mut remaining = words::POSSIBLE_WORDS.to_vec();
         for &guess in path.iter() {
             get_rigged_response(&mut buckets, &mut remaining, guess);
+        }
+
+        fn print_path(path: &[Word]) {
+            println!("SOLUTION = {}", path_to_string(path));
         }
         descend_path(&mut buckets, &mut path, &remaining, &print_path, prune);
         // let starting_str = core::str::from_utf8(&starting[..]).unwrap();
@@ -251,7 +246,7 @@ fn find_solutions(prune: usize, starting: Option<Word>) {
     let mut threads = Vec::new();
     for _ in 0..max_threads {
         threads.push(std::thread::spawn(move || {
-            worker(prune, starting);
+            solution_worker(prune, starting);
         }));
     }
     for thread in threads {
