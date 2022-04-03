@@ -1,12 +1,16 @@
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 mod game;
-use game::{get_rigged_response, Buckets, Game, Word, WordScore};
+use game::{get_rigged_response, Buckets, Game, Word, WordScore, WORD_SIZE};
 
 mod words;
 
+/// Convert solution path to a comma-separated string
 fn path_to_string(path: &[Word]) -> String {
-    let mut response = String::with_capacity(32);
+    const EXPECTED_PATH_LEN: usize = 4;
+    // Pre-calculate the expected output string length.
+    const EXPECTED_ROW_LEN: usize = EXPECTED_PATH_LEN * (WORD_SIZE + 1) - 1;
+    let mut response = String::with_capacity(EXPECTED_ROW_LEN);
     for chunk in path {
         let chunk_str = std::str::from_utf8(&chunk[..]).unwrap();
         if response.len() > 1 {
@@ -17,53 +21,73 @@ fn path_to_string(path: &[Word]) -> String {
     response
 }
 
-fn descend_path(
-    buckets: &mut Buckets,
-    path: &mut Vec<Word>,
-    remaining: &[Word],
-    sink: &impl Fn(&[Word]),
+struct DepthSearch {
+    buckets: Buckets,
+    remaining: Vec<Word>,
+    path: Vec<Word>,
     prune: usize,
-) {
-    static PRUNED: AtomicUsize = AtomicUsize::new(0);
-    let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
-    if path.len() == 2 && remaining.len() > prune {
-        let word_count = all_words.count();
-        PRUNED.fetch_add(word_count - 2, AtomicOrdering::Relaxed);
-        return;
+}
+
+impl DepthSearch {
+    pub fn new(word_list: &[Word], path: Vec<Word>, prune: usize) -> Self {
+        let mut remaining = word_list.to_vec();
+        let mut buckets = Buckets::new();
+        for &guess in path.iter() {
+            get_rigged_response(&mut buckets, &mut remaining, guess);
+        }
+        Self {
+            buckets,
+            path,
+            remaining,
+            prune,
+        }
     }
-    if path.len() < 3 {
-        for &word in all_words {
-            if path.contains(&word) {
-                continue;
+    pub fn descend_path(&mut self, sink: &impl Fn(&[Word])) {
+        static PRUNED: AtomicUsize = AtomicUsize::new(0);
+        let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
+        if self.path.len() == 2 && self.remaining.len() > self.prune {
+            // Hoping for the codegen to replace this with a constant
+            let word_count = all_words.count();
+            PRUNED.fetch_add(word_count - 2, AtomicOrdering::Relaxed);
+            return;
+        }
+        if self.path.len() < 3 {
+            let remaining_backup = self.remaining.clone();
+            for &word in all_words {
+                if self.path.contains(&word) {
+                    continue;
+                }
+                self.path.push(word);
+                get_rigged_response(&mut self.buckets, &mut self.remaining, word);
+                self.descend_path(sink);
+                self.remaining.clear();
+                self.remaining.extend(remaining_backup.iter().cloned());
+                self.path.pop();
             }
-            let mut remaining = remaining.to_vec();
-            path.push(word);
-            get_rigged_response(buckets, &mut remaining, word);
-            descend_path(buckets, path, &remaining, sink, prune);
-            path.pop();
-        }
-    } else {
-        if remaining.len() == 1 {
-            path.push(remaining[0]);
-            sink(path);
-            path.pop();
-        }
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let count = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
-        if count & 0xfffff == 0 {
-            let pruned = PRUNED.load(AtomicOrdering::Relaxed);
-            eprintln!(
-                "processed={} pruned={} last_path={} remaining={}",
-                count,
-                pruned,
-                path_to_string(path),
-                remaining.len()
-            );
+        } else {
+            if self.remaining.len() == 1 {
+                self.path.push(self.remaining[0]);
+                sink(&self.path);
+                self.path.pop();
+            }
+            static COUNTER: AtomicUsize = AtomicUsize::new(0);
+            let count = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+            if count & 0xfffff == 0 {
+                let pruned = PRUNED.load(AtomicOrdering::Relaxed);
+                eprintln!(
+                    "processed={} pruned={} last_path={} remaining={}",
+                    count,
+                    pruned,
+                    path_to_string(&self.path),
+                    self.remaining.len()
+                );
+            }
         }
     }
 }
 
 fn solution_worker(prune: usize, start: Option<Word>) {
+    use core::iter::once;
     let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     loop {
         static POSITION: AtomicUsize = AtomicUsize::new(0);
@@ -73,22 +97,13 @@ fn solution_worker(prune: usize, start: Option<Word>) {
             None => break,
         };
 
-        let mut buckets = Buckets::new();
-        let mut path = Vec::new();
-        if let Some(start) = start {
-            path.push(start);
-        }
-        path.push(starting);
-
-        let mut remaining = words::POSSIBLE_WORDS.to_vec();
-        for &guess in path.iter() {
-            get_rigged_response(&mut buckets, &mut remaining, guess);
-        }
+        let path = start.into_iter().chain(once(starting)).collect::<Vec<_>>();
 
         fn print_path(path: &[Word]) {
             println!("SOLUTION = {}", path_to_string(path));
         }
-        descend_path(&mut buckets, &mut path, &remaining, &print_path, prune);
+        DepthSearch::new(words::POSSIBLE_WORDS, path, prune)
+            .descend_path(&print_path);
         // let starting_str = core::str::from_utf8(&starting[..]).unwrap();
         // eprintln!("explored {}", starting_str);
     }
@@ -96,6 +111,7 @@ fn solution_worker(prune: usize, start: Option<Word>) {
 
 fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
     let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
+    // Hoping for the codegen to replace this with a constant
     let count = all_words.clone().count();
     let mut counts = std::collections::BTreeMap::new();
     loop {

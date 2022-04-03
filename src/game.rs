@@ -1,7 +1,8 @@
 use core::cmp::{Ord, PartialOrd, Reverse};
 use std::collections::BTreeMap;
 
-pub type Word = [u8; 5];
+pub const WORD_SIZE: usize = 5;
+pub type Word = [u8; WORD_SIZE];
 pub type Buckets = BTreeMap<WordScore, Vec<Word>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -15,11 +16,11 @@ pub enum LetterScore {
 pub struct WordScore {
     pub correct_places: usize,
     pub correct_letters: usize,
-    pub letters: [LetterScore; 5],
+    pub letters: [LetterScore; WORD_SIZE],
 }
 
 pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
-    let mut letters = [LetterScore::Miss; 5];
+    let mut letters = [LetterScore::Miss; WORD_SIZE];
 
     // Prioritize finding letters that are in the correct place
     let mut correct_places = 0;
