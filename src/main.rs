@@ -1,6 +1,3 @@
-#![feature(iter_intersperse)]
-//#![feature(bool_to_option)]
-
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
 use game::{Buckets, Game, WordScore, LetterScore, HardMode, Word, get_rigged_response};
