@@ -25,12 +25,14 @@ fn descend_path(
     prune: usize,
 ) {
     static PRUNED: AtomicUsize = AtomicUsize::new(0);
+    let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     if path.len() == 2 && remaining.len() > prune {
-        PRUNED.fetch_add(words::POSSIBLE_WORDS.len() - 2, AtomicOrdering::Relaxed);
+        let word_count = all_words.clone().count();
+        PRUNED.fetch_add(word_count - 2, AtomicOrdering::Relaxed);
         return;
     }
     if path.len() < 3 {
-        for &word in words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS) {
+        for &word in all_words {
             if path.contains(&word) { continue; }
             let mut remaining = remaining.to_vec();
             path.push(word);
@@ -41,7 +43,7 @@ fn descend_path(
     } else {
         if remaining.len() == 1 {
             path.push(remaining[0]);
-            sink(&path);
+            sink(path);
             path.pop();
         }
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
