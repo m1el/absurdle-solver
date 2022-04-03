@@ -1,5 +1,5 @@
 use core::cmp::{Ord, PartialOrd, Reverse};
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 
 pub type Word = [u8; 5];
 pub type Buckets = BTreeMap<WordScore, Vec<Word>>;
@@ -59,7 +59,10 @@ pub fn get_rigged_response(
     secret_words: &mut Vec<Word>,
     guess: Word,
 ) -> WordScore {
-    assert!(!secret_words.is_empty(), "The list of secret words cannot be empty");
+    assert!(
+        !secret_words.is_empty(),
+        "The list of secret words cannot be empty"
+    );
 
     for bucket in buckets.values_mut() {
         bucket.clear();
@@ -67,18 +70,17 @@ pub fn get_rigged_response(
 
     for &word in secret_words.iter() {
         let score = guess_score(word, guess);
-        buckets.entry(score)
-            .or_insert_with(Vec::new)
-            .push(word);
+        buckets.entry(score).or_insert_with(Vec::new).push(word);
     }
 
-    let max_key =
-        *buckets.keys()
-            // Find the bucket with maximum number of entries and minimal score
-            .max_by_key(|&score| (buckets[score].len(), Reverse(score)))
-            .expect("At least one key must be present, which means max must return Some");
+    let max_key = *buckets
+        .keys()
+        // Find the bucket with maximum number of entries and minimal score
+        .max_by_key(|&score| (buckets[score].len(), Reverse(score)))
+        .expect("At least one key must be present, which means max must return Some");
 
-    let worst_bucket = buckets.get_mut(&max_key)
+    let worst_bucket = buckets
+        .get_mut(&max_key)
         .expect("The key comes from the hashmap, so it must be present");
     core::mem::swap(secret_words, worst_bucket);
 
@@ -120,8 +122,11 @@ impl HardMode {
         for &(rc, pos) in &self.req_place {
             if cword[pos] != rc {
                 cword[pos] = 0;
-                return Err(format!("the word must use char '{}' at position {}",
-                    rc as char, pos + 1));
+                return Err(format!(
+                    "the word must use char '{}' at position {}",
+                    rc as char,
+                    pos + 1
+                ));
             }
         }
         for &rc in &self.req_chars {
@@ -171,7 +176,11 @@ impl RegularMode {
         if !(self.allowed)(word) {
             return Err("the word is not in the allowed list!".to_string());
         }
-        Ok(get_rigged_response(&mut self.buckets, &mut self.remaining, word))
+        Ok(get_rigged_response(
+            &mut self.buckets,
+            &mut self.remaining,
+            word,
+        ))
     }
 }
 
@@ -187,7 +196,6 @@ impl Game {
         } else {
             Game::Regular(RegularMode::new(remaining, allowed))
         }
-
     }
     pub fn update(&mut self, word: Word) -> Result<WordScore, String> {
         match self {

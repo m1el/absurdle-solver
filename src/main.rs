@@ -1,8 +1,8 @@
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-use game::{Buckets, Game, WordScore, LetterScore, HardMode, Word, get_rigged_response};
-
 mod game;
+use game::{get_rigged_response, Buckets, Game, Word, WordScore};
+
 mod words;
 
 fn path_to_string(path: &[Word]) -> String {
@@ -33,7 +33,9 @@ fn descend_path(
     }
     if path.len() < 3 {
         for &word in all_words {
-            if path.contains(&word) { continue; }
+            if path.contains(&word) {
+                continue;
+            }
             let mut remaining = remaining.to_vec();
             path.push(word);
             get_rigged_response(buckets, &mut remaining, word);
@@ -50,8 +52,13 @@ fn descend_path(
         let count = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
         if count & 0xfffff == 0 {
             let pruned = PRUNED.load(AtomicOrdering::Relaxed);
-            eprintln!("processed={} pruned={} last_path={} remaining={}",
-                      count, pruned, path_to_string(path), remaining.len());
+            eprintln!(
+                "processed={} pruned={} last_path={} remaining={}",
+                count,
+                pruned,
+                path_to_string(path),
+                remaining.len()
+            );
         }
     }
 }
@@ -126,7 +133,9 @@ fn solution_distribution() {
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let line = line.unwrap();
-        let words = line.trim().split(',')
+        let words = line
+            .trim()
+            .split(',')
             .map(|w| w.as_bytes().try_into().expect("ivalid number of chars"));
 
         let mut remaining = words::POSSIBLE_WORDS.to_vec();
@@ -134,7 +143,9 @@ fn solution_distribution() {
             get_rigged_response(&mut buckets, &mut remaining, word);
         }
         *path_counts.entry(remaining.len()).or_insert(0) += 1;
-        uniq_counts.entry(remaining.len()).or_insert_with(BTreeSet::new)
+        uniq_counts
+            .entry(remaining.len())
+            .or_insert_with(BTreeSet::new)
             .insert(remaining);
     }
     for (count, distr) in path_counts {
@@ -151,7 +162,8 @@ fn calculate_two_word_distribution() {
     use std::sync::{Arc, Mutex};
     let counts = Arc::new(Mutex::new(BTreeMap::new()));
     let max_threads = std::thread::available_parallelism()
-        .map(|x| x.get()).unwrap_or(1);
+        .map(|x| x.get())
+        .unwrap_or(1);
 
     let mut threads = Vec::new();
     for _ in 0..max_threads {
@@ -175,8 +187,10 @@ fn calculate_two_word_distribution() {
 
 fn is_hard_solution(mut words: Vec<Word>) -> bool {
     let target = words.pop().expect("at least one word is expected");
-    fn all_allowed(_word: Word) -> bool { true }
-    let mut hard_mode = HardMode::new(vec![target], all_allowed);
+    fn all_allowed(_word: Word) -> bool {
+        true
+    }
+    let mut hard_mode = game::HardMode::new(vec![target], all_allowed);
     for word in words {
         if hard_mode.update(word).is_err() {
             return false;
@@ -204,7 +218,9 @@ fn filter_hard_solutions() {
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let line = line.unwrap();
-        let words = line.trim().split(',')
+        let words = line
+            .trim()
+            .split(',')
             .map(parse_word)
             .collect::<Result<Vec<Word>, &str>>();
         let words = match words {
@@ -241,7 +257,8 @@ fn benchmark_guess_score() {
 
 fn find_solutions(prune: usize, starting: Option<Word>) {
     let max_threads = std::thread::available_parallelism()
-        .map(|x| x.get()).unwrap_or(1);
+        .map(|x| x.get())
+        .unwrap_or(1);
 
     eprintln!("Starting to find solutions with prune={}", prune);
     eprintln!("running with {} threads", max_threads);
@@ -257,6 +274,7 @@ fn find_solutions(prune: usize, starting: Option<Word>) {
 }
 
 fn highlight_term(score: WordScore, guess: Word) -> String {
+    use game::LetterScore;
     const ESCAPE: &str = "\x1b[";
     let mut result = String::new();
     for (&score, chr) in score.letters.iter().zip(guess) {
@@ -275,10 +293,9 @@ fn highlight_term(score: WordScore, guess: Word) -> String {
 }
 
 fn play(hard_mode: bool) {
-    use std::io::{Write, BufRead};
+    use std::io::{BufRead, Write};
     fn valid_guess(word: Word) -> bool {
-        words::POSSIBLE_WORDS.contains(&word)
-            || words::IMPOSSIBLE_WORDS.contains(&word)
+        words::POSSIBLE_WORDS.contains(&word) || words::IMPOSSIBLE_WORDS.contains(&word)
     }
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -322,7 +339,8 @@ fn play(hard_mode: bool) {
 }
 
 fn print_help() {
-    print!(r#"Invalid mode! Please provide a mode as the first command line argument. Available modes are:
+    print!(
+        r#"Invalid mode! Please provide a mode as the first command line argument. Available modes are:
 - play [hard]: Play the game interactively in the console. Optionally add "hard" to play hard mode.
   Hard mode requires you to strictly use all the information previously acquired in the game.
 - find-solutions [--prune <number>] [<starting word>]: Find 4-word solutions. Optionally provide with the starting word.
@@ -330,12 +348,13 @@ fn print_help() {
 - solution-distr: Take solutions from stdin, print their distribution by the first two starting words.
 - filter-hard: Take solutions from stdin, only print valid hard mode solutions.
 - bench-guess-score: Benchmark how long it takes to calculate score for one word guess.
-"#);
+"#
+    );
 }
 
-fn parse_solutions_args(mut argv: impl Iterator<Item=String>)
-    -> Result<(usize, Option<Word>), &'static str>
-{
+fn parse_solutions_args(
+    mut argv: impl Iterator<Item = String>,
+) -> Result<(usize, Option<Word>), &'static str> {
     const DEFAULT_PRUNE: usize = 40;
     let mut prune = None;
     let mut word = None;
@@ -344,8 +363,11 @@ fn parse_solutions_args(mut argv: impl Iterator<Item=String>)
             if prune.is_some() {
                 return Err("Duplicate argument for prune count");
             }
-            let count = argv.next().ok_or("expected an argument after --prune")?
-                .parse::<usize>().map_err(|_| "expected a number after --prune")?;
+            let count = argv
+                .next()
+                .ok_or("expected an argument after --prune")?
+                .parse::<usize>()
+                .map_err(|_| "expected a number after --prune")?;
             prune = Some(count);
         } else {
             if word.is_some() {
