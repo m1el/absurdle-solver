@@ -277,14 +277,18 @@ fn highlight_term(score: WordScore, guess: Word) -> String {
     use game::LetterScore;
     const ESCAPE: &str = "\x1b[";
     let mut result = String::new();
+    let mut prev_score = None;
     for (&score, chr) in score.letters.iter().zip(guess) {
-        let color = match score {
-            LetterScore::Miss => "0m",
-            LetterScore::CorrectLetter => "38;2;255;255;0m",
-            LetterScore::CorrectPlace => "38;2;0;255;0m",
-        };
-        result.push_str(ESCAPE);
-        result.push_str(color);
+        if prev_score != Some(score) {
+            let color = match score {
+                LetterScore::Miss => "0m",
+                LetterScore::CorrectLetter => "38;2;255;255;0m",
+                LetterScore::CorrectPlace => "38;2;0;255;0m",
+            };
+            result.push_str(ESCAPE);
+            result.push_str(color);
+            prev_score = Some(score);
+        }
         result.push(chr as char);
     }
     result.push_str(ESCAPE);
