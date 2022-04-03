@@ -9,6 +9,7 @@ fn descend_path(
     buckets: &mut Buckets,
     path: &mut Vec<Word>,
     remaining: &[Word],
+    sink: &impl Fn(&[Word]),
     prune: usize,
 ) {
     static PRUNED: AtomicUsize = AtomicUsize::new(0);
@@ -22,20 +23,14 @@ fn descend_path(
             let mut remaining = remaining.to_vec();
             path.push(word);
             get_rigged_response(buckets, &mut remaining, word);
-            descend_path(buckets, path, &remaining, prune);
+            descend_path(buckets, path, &remaining, sink, prune);
             path.pop();
         }
     } else {
         if remaining.len() == 1 {
-            let mut response = String::with_capacity(32);
-            for chunk in path.iter().chain(remaining.iter()) {
-                let chunk_str = std::str::from_utf8(&chunk[..]).unwrap();
-                if response.len() > 1 {
-                    response.push(',');
-                }
-                response.push_str(chunk_str);
-            }
-            println!("SOLUTION = {}", response);
+            path.push(remaining[0]);
+            sink(&path);
+            path.pop();
         }
         let mut response = String::with_capacity(32);
         for chunk in path.iter() {
@@ -54,6 +49,18 @@ fn descend_path(
                       count, pruned, response, remaining.len());
         }
     }
+}
+
+fn print_path(path: &[Word]) {
+    let mut response = String::with_capacity(32);
+    for chunk in path {
+        let chunk_str = std::str::from_utf8(&chunk[..]).unwrap();
+        if response.len() > 1 {
+            response.push(',');
+        }
+        response.push_str(chunk_str);
+    }
+    println!("SOLUTION = {}", response);
 }
 
 fn worker(prune: usize, start: Option<Word>) {
@@ -77,7 +84,7 @@ fn worker(prune: usize, start: Option<Word>) {
         for &guess in path.iter() {
             get_rigged_response(&mut buckets, &mut remaining, guess);
         }
-        descend_path(&mut buckets, &mut path, &remaining, prune);
+        descend_path(&mut buckets, &mut path, &remaining, &print_path, prune);
         // let starting_str = core::str::from_utf8(&starting[..]).unwrap();
         // eprintln!("explored {}", starting_str);
     }
