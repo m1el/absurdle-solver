@@ -1,9 +1,9 @@
 #![feature(iter_intersperse)]
-#![feature(bool_to_option)]
+//#![feature(bool_to_option)]
 
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
-use game::{Buckets, Word, get_rigged_response};
+use game::{Buckets, HardMode, Word, get_rigged_response};
 
 mod game;
 mod words;
@@ -124,7 +124,7 @@ fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
 }
 
 fn main() {
-    let mode = "main";
+    let mode = "filter-hard";
     match mode {
         "sol-distr" => {
             use std::collections::{BTreeMap, HashSet};
@@ -185,64 +185,20 @@ fn main() {
         }
         "filter-hard" => {
             use std::io::BufRead;
-            use game::{guess_score, LetterScore};
             let stdin = std::io::stdin();
-            for line in stdin.lock().lines() {
+            'outer: for line in stdin.lock().lines() {
                 let line = line.unwrap();
                 let mut words = line.trim().split(',')
                     .map(|w| w.as_bytes().try_into().expect("ivalid number of chars"))
                     .collect::<Vec<Word>>();
                 let target = words.pop().expect("at least one word is expected");
-                let mut miss_chars = Vec::<u8>::new();
-                let mut req_chars = Vec::<u8>::new();
-                let mut req_place = Vec::<(u8, usize)>::new();
-                let mut good = true;
-                'outer: for word in words {
-                    {
-                        let mut word = word;
-                        for &mc in &miss_chars {
-                            if word.contains(&mc) {
-                                good = false;
-                                break 'outer;
-                            }
-                        }
-                        for &(rc, pos) in &req_place {
-                            if word[pos] != rc {
-                                word[pos] = 0;
-                                good = false;
-                                break 'outer;
-                            }
-                        }
-                        for &rc in &req_chars {
-                            if let Some(pos) = word.iter().position(|&c| c == rc) {
-                                word[pos] = 0;
-                            } else {
-                                good = false;
-                                break 'outer;
-                            }
-                        }
-                    }
-
-                    let score = guess_score(target, word);
-                    req_chars.clear();
-                    req_place.clear();
-                    for (index, (chr, ls)) in word.iter().copied().zip(score.letters).enumerate() {
-                        match ls {
-                            LetterScore::Miss => {
-                                miss_chars.push(chr);
-                            }
-                            LetterScore::CorrectLetter => {
-                                req_chars.push(chr);
-                            }
-                            LetterScore::CorrectPlace => {
-                                req_place.push((chr, index));
-                            }
-                        }
+                let mut hard_mode = HardMode::new(vec![target]);
+                for word in words {
+                    if hard_mode.update(word).is_err() {
+                        continue 'outer;
                     }
                 }
-                if good {
-                    println!("{}", line.trim());
-                }
+                println!("{}", line.trim());
             }
         }
         "bench_guess_score" => {
@@ -258,6 +214,49 @@ fn main() {
                 }
             }
             println!("1M guess_score: {:?}", start.elapsed());
+        }
+        "play" => {
+            use std::io::{Write, BufRead};
+            let mut remaining = words::POSSIBLE_WORDS.to_vec();
+            let mut buckets = Buckets::new();
+            let stdin = std::io::stdin();
+            let stdout = std::io::stdout();
+            let mut buf = String::new();
+            let mut read_word = move || -> Result<[u8; 5], Box<dyn std::error::Error>> {
+                let mut stdout = stdout.lock();
+                stdout.write(b"enter your guess: ")?;
+                stdout.flush()?;
+                buf.clear();
+                stdin.lock().read_line(&mut buf)?;
+                let mut word: Word = buf.trim().as_bytes().try_into()?;
+                for chr in word.iter_mut() {
+                    *chr = chr.to_ascii_uppercase();
+                }
+                if !words::POSSIBLE_WORDS.contains(&word)
+                    && !words::IMPOSSIBLE_WORDS.contains(&word) {
+                    return Err(format!("Invalid guess: {}", buf.trim()).into());
+                }
+                Ok(word)
+            };
+            loop {
+                let word = loop {
+                    match read_word() {
+                        Ok(word) => {
+                            break word;
+                        }
+                        Err(err) => {
+                            eprintln!("could not parse line: {:?}", err);
+                            continue;
+                        }
+                    }
+                };
+                let score = get_rigged_response(&mut buckets, &mut remaining, word);
+                println!("{}", score.highlight_term(word));
+                if score.correct_places == word.len() {
+                    println!("you won!");
+                    break;
+                }
+            }
         }
         "main" => {
             let word: Option<Word> = std::env::args().nth(1)

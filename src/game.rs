@@ -17,7 +17,6 @@ pub struct WordScore {
     pub letters: [LetterScore; 5],
 }
 
-/*
 impl WordScore {
     pub fn highlight_term(&self, guess: Word) -> String {
         const ESCAPE: &str = "\x1b[";
@@ -25,8 +24,8 @@ impl WordScore {
         for (&score, chr) in self.letters.iter().zip(guess) {
             let color = match score {
                 LetterScore::Miss => "0m",
-                LetterScore::CorrectLetter => "33m",
-                LetterScore::CorrectPlace => "32m",
+                LetterScore::CorrectLetter => "38;2;255;255;0m",
+                LetterScore::CorrectPlace => "38;2;0;255;0m",
             };
             result.push_str(ESCAPE);
             result.push_str(color);
@@ -37,7 +36,114 @@ impl WordScore {
         result
     }
 }
-*/
+
+pub trait CloneIterWord: Sized + Clone + Iterator<Item=Word> { }
+impl<T: Sized + Clone + Iterator<Item=Word>> CloneIterWord for T { }
+
+pub type AllowedWords = Box<dyn CloneIterWord>;
+
+pub struct HardMode {
+    buckets: Buckets,
+    remaining: Vec<Word>,
+    allowed: AllowedWords,
+    miss_chars: Vec<u8>,
+    req_chars: Vec<u8>,
+    req_place: Vec<(u8, usize)>,
+}
+
+impl HardMode {
+    pub fn new(remaining: Vec<Word>, allowed: AllowedWords) -> Self {
+        Self {
+            buckets: Buckets::new(),
+            remaining,
+            allowed,
+            miss_chars: Vec::new(),
+            req_chars: Vec::new(),
+            req_place: Vec::new(),
+        }
+    }
+    pub fn update(&mut self, word: Word) -> Result<WordScore, String> {
+        if !self.allowed.clone().some(|w| w == word) {
+            return Err(format!("the word is not in the allowed list!"));
+        }
+        let mut cword = word;
+        for &mc in &self.miss_chars {
+            if cword.contains(&mc) {
+                return Err(format!("the word must not use char '{}'", mc as char));
+            }
+        }
+        for &(rc, pos) in &self.req_place {
+            if cword[pos] != rc {
+                cword[pos] = 0;
+                return Err(format!("the word must use char '{}' at position {}",
+                    rc as char, pos + 1));
+            }
+        }
+        for &rc in &self.req_chars {
+            if let Some(pos) = cword.iter().position(|&c| c == rc) {
+                cword[pos] = 0;
+            } else {
+                return Err(format!("the word must use char '{}'", rc as char));
+            }
+        }
+
+        let score = get_rigged_response(&mut self.buckets, &mut self.remaining, word);
+        self.req_chars.clear();
+        self.req_place.clear();
+
+        for (index, (chr, ls)) in word.iter().copied().zip(score.letters).enumerate() {
+            match ls {
+                LetterScore::Miss => {
+                    self.miss_chars.push(chr);
+                }
+                LetterScore::CorrectLetter => {
+                    self.req_chars.push(chr);
+                }
+                LetterScore::CorrectPlace => {
+                    self.req_place.push((chr, index));
+                }
+            }
+        }
+        Ok(score)
+    }
+}
+
+pub struct RegularMode {
+    buckets: Buckets,
+    remaining: Vec<Word>,
+    allowed: AllowedWords,
+}
+
+impl RegularMode {
+    pub fn new(remaining: Vec<Word>, allowed: AllowedWords) -> Self {
+        Self {
+            buckets: Buckets::new(),
+            remaining,
+            allowed,
+        }
+    }
+    pub fn update(&mut self, word: Word) -> Result<WordScore, String> {
+        if !self.allowed.clone().some(|w| w == word) {
+            return Err(format!("the word is not in the allowed list!"));
+        }
+        Ok(get_rigged_response(&mut self.buckets, &mut self.remaining, word))
+    }
+}
+
+pub enum GameMode {
+    Regular(RegularMode),
+    Hard(HardMode),
+}
+
+impl GameMode {
+    pub fn new_regular(remaining: Vec<Word>, allowed: AllowedWords) -> Self {
+        GameMode::Regular(RegularMode::new(remaining, allowed))
+
+    }
+    pub fn new_hard(remaining: Vec<Word>, allowed: AllowedWords) -> Self {
+        GameMode::Hard(HardMode::new(remaining, allowed))
+    }
+}
 
 pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
     let mut letters = [LetterScore::Miss; 5];
