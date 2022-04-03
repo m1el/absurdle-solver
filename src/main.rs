@@ -27,7 +27,7 @@ fn descend_path(
     static PRUNED: AtomicUsize = AtomicUsize::new(0);
     let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     if path.len() == 2 && remaining.len() > prune {
-        let word_count = all_words.clone().count();
+        let word_count = all_words.count();
         PRUNED.fetch_add(word_count - 2, AtomicOrdering::Relaxed);
         return;
     }
