@@ -1,14 +1,17 @@
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::collections::{BTreeMap, BTreeSet};
 
 mod game;
 use game::{get_rigged_response, Buckets, Game, Word, WordScore, WORD_SIZE};
 
 mod words;
 
+/// The requested solution length. We're looking for 4-word Absurdle solutions.
+const EXPECTED_PATH_LEN: usize = 4;
+
 /// Convert solution path to a comma-separated string
 fn path_to_string(path: &[Word]) -> String {
-    const EXPECTED_PATH_LEN: usize = 4;
-    // Pre-calculate the expected output string length.
+    /// Pre-calculated the string representation length.
     const EXPECTED_ROW_LEN: usize = EXPECTED_PATH_LEN * (WORD_SIZE + 1) - 1;
     let mut response = String::with_capacity(EXPECTED_ROW_LEN);
     for chunk in path {
@@ -22,13 +25,20 @@ fn path_to_string(path: &[Word]) -> String {
 }
 
 struct DepthSearch {
+    /// Re-usable storage for `get_rigged_response`
     buckets: Buckets,
+    /// Current list of remaining words for the recursive descent
     remaining: Vec<Word>,
+    /// Current search path
     path: Vec<Word>,
+    /// Prune size at depth 2
     prune: usize,
 }
 
 impl DepthSearch {
+    /// Construct new depth search, with given parameters.
+    /// This function will take care of reducing the word list according to
+    /// the provided path.
     pub fn new(word_list: &[Word], path: Vec<Word>, prune: usize) -> Self {
         let mut remaining = word_list.to_vec();
         let mut buckets = Buckets::new();
@@ -42,36 +52,49 @@ impl DepthSearch {
             prune,
         }
     }
+
+    /// Recursively run depth first search, and call `sink` with solutions.
     pub fn descend_path(&mut self, sink: &impl Fn(&[Word])) {
+        /// Check pruning length at depth 2.  Pruning assumes that there's
+        /// no way to reduce the remaining words list to a single word
+        /// using only one guess.
+        const PRUNE_DEPTH: usize = 2;
+
+        /// Since the last word in the path needs to be known for the solution
+        /// to be valid, the search depth is one less than the solution length.
+        const MAX_SEARCH_DEPTH: usize = EXPECTED_PATH_LEN - 1;
+
+        /// Global counter for pruned words. We're using this for stats.
         static PRUNED: AtomicUsize = AtomicUsize::new(0);
+
         let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
-        if self.path.len() == 2 && self.remaining.len() > self.prune {
+        if self.path.len() == PRUNE_DEPTH && self.remaining.len() > self.prune {
             // Hoping for the codegen to replace this with a constant
             let word_count = all_words.count();
-            PRUNED.fetch_add(word_count - 2, AtomicOrdering::Relaxed);
+
+            assert!(MAX_SEARCH_DEPTH == PRUNE_DEPTH + 1,
+                "Requirement for calculating combinations for pruned words.");
+            // Since there are 2 words in the path, there are 2 fewer words
+            // to be explored than the total number of words.
+            PRUNED.fetch_add(word_count - PRUNE_DEPTH, AtomicOrdering::Relaxed);
             return;
         }
-        if self.path.len() < 3 {
-            let remaining_backup = self.remaining.clone();
-            for &word in all_words {
-                if self.path.contains(&word) {
-                    continue;
-                }
-                self.path.push(word);
-                get_rigged_response(&mut self.buckets, &mut self.remaining, word);
-                self.descend_path(sink);
-                self.remaining.clear();
-                self.remaining.extend(remaining_backup.iter().cloned());
-                self.path.pop();
-            }
-        } else {
+
+        assert!(self.path.len() <= MAX_SEARCH_DEPTH,
+            "Rath length should not exceed MAX_SEARCH_DEPTH");
+        if self.path.len() == MAX_SEARCH_DEPTH {
+            // Check that there is only one remaining word left, and call
+            // the sink with the solution path.
             if self.remaining.len() == 1 {
                 self.path.push(self.remaining[0]);
                 sink(&self.path);
                 self.path.pop();
             }
+
+            // Global counter of explored paths.
             static COUNTER: AtomicUsize = AtomicUsize::new(0);
             let count = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+            // Print stats every ~million explored paths.
             if count & 0xfffff == 0 {
                 let pruned = PRUNED.load(AtomicOrdering::Relaxed);
                 eprintln!(
@@ -82,41 +105,66 @@ impl DepthSearch {
                     self.remaining.len()
                 );
             }
+        // If we haven't reached the max search depth, descend some more.
+        } else {
+            // Save the remaining words since a recursive call will mutate it
+            let remaining_backup = self.remaining.clone();
+            for &word in all_words {
+                // There is no information to be gained from a repeating guess.
+                if self.path.contains(&word) {
+                    continue;
+                }
+
+                // Calculate the next state for the descent.
+                self.path.push(word);
+                get_rigged_response(&mut self.buckets, &mut self.remaining, word);
+
+                self.descend_path(sink);
+
+                // Restore the state prior to the recursive call.
+                self.remaining.clear();
+                self.remaining.extend(&remaining_backup);
+                self.path.pop();
+            }
         }
     }
 }
 
-fn solution_worker(prune: usize, start: Option<Word>) {
+fn solution_worker(position: &AtomicUsize, prune: usize, start: Option<Word>) {
     use core::iter::once;
     let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     loop {
-        static POSITION: AtomicUsize = AtomicUsize::new(0);
-        let position = POSITION.fetch_add(1, AtomicOrdering::SeqCst);
+        // Multi-thread iteration over all words.
+        let position = position.fetch_add(1, AtomicOrdering::SeqCst);
+        // Hoping for the codegen to compile `nth` to few branches.
         let starting = match all_words.clone().nth(position) {
             Some(&word) => word,
             None => break,
         };
 
+        // Initialize the path with optionally provided starting word and
+        // current search word.
         let path = start.into_iter().chain(once(starting)).collect::<Vec<_>>();
 
+        // Sink for the solutions.
         fn print_path(path: &[Word]) {
             println!("SOLUTION = {}", path_to_string(path));
         }
+        // Run the depth first search, printing all the 4-word solutions
         DepthSearch::new(words::POSSIBLE_WORDS, path, prune)
             .descend_path(&print_path);
-        // let starting_str = core::str::from_utf8(&starting[..]).unwrap();
-        // eprintln!("explored {}", starting_str);
     }
 }
 
-fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
+fn distr_worker(position: &AtomicUsize) -> BTreeMap<usize, usize> {
     let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     // Hoping for the codegen to replace this with a constant
     let count = all_words.clone().count();
-    let mut counts = std::collections::BTreeMap::new();
+    let mut counts = BTreeMap::new();
     loop {
-        static POSITION: AtomicUsize = AtomicUsize::new(0);
-        let position = POSITION.fetch_add(1, AtomicOrdering::SeqCst);
+        // Multi-thread iteration over all words.
+        let position = position.fetch_add(1, AtomicOrdering::SeqCst);
+        // Hoping for the codegen to compile `nth` to few branches.
         let first = match all_words.clone().nth(position) {
             Some(&word) => word,
             None => return counts,
@@ -126,10 +174,12 @@ fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
         let mut remaining = words::POSSIBLE_WORDS.to_vec();
         get_rigged_response(&mut buckets, &mut remaining, first);
 
+        let mut remaining_scratch = Vec::new();
         for &second in all_words.clone() {
-            let mut remaining = remaining.clone();
-            get_rigged_response(&mut buckets, &mut remaining, second);
-            *counts.entry(remaining.len()).or_insert(0) += 1;
+            remaining_scratch.clear();
+            remaining_scratch.extend(&remaining);
+            get_rigged_response(&mut buckets, &mut remaining_scratch, second);
+            *counts.entry(remaining_scratch.len()).or_insert(0) += 1;
         }
 
         if position & 0xff == 0 {
@@ -139,7 +189,6 @@ fn distr_worker() -> std::collections::BTreeMap<usize, usize> {
 }
 
 fn solution_distribution() {
-    use std::collections::{BTreeMap, BTreeSet};
     use std::io::BufRead;
 
     let mut path_counts = BTreeMap::new();
@@ -158,7 +207,10 @@ fn solution_distribution() {
         for word in words.take(2) {
             get_rigged_response(&mut buckets, &mut remaining, word);
         }
+        remaining.sort();
+
         *path_counts.entry(remaining.len()).or_insert(0) += 1;
+
         uniq_counts
             .entry(remaining.len())
             .or_insert_with(BTreeSet::new)
@@ -174,7 +226,6 @@ fn solution_distribution() {
 }
 
 fn calculate_two_word_distribution() {
-    use std::collections::BTreeMap;
     use std::sync::{Arc, Mutex};
     let counts = Arc::new(Mutex::new(BTreeMap::new()));
     let max_threads = std::thread::available_parallelism()
@@ -182,10 +233,12 @@ fn calculate_two_word_distribution() {
         .unwrap_or(1);
 
     let mut threads = Vec::new();
+    let position = Arc::new(AtomicUsize::new(0));
     for _ in 0..max_threads {
         let counts = counts.clone();
+        let position = position.clone();
         threads.push(std::thread::spawn(move || {
-            let update_counts = distr_worker();
+            let update_counts = distr_worker(&position);
             let mut counts = counts.lock().expect("cannot lock mutex");
             for (key, distr) in update_counts {
                 *counts.entry(key).or_insert(0) += distr;
@@ -272,6 +325,7 @@ fn benchmark_guess_score() {
 }
 
 fn find_solutions(prune: usize, starting: Option<Word>) {
+    use std::sync::Arc;
     let max_threads = std::thread::available_parallelism()
         .map(|x| x.get())
         .unwrap_or(1);
@@ -279,9 +333,11 @@ fn find_solutions(prune: usize, starting: Option<Word>) {
     eprintln!("Starting to find solutions with prune={}", prune);
     eprintln!("running with {} threads", max_threads);
     let mut threads = Vec::new();
+    let position = Arc::new(AtomicUsize::new(0));
     for _ in 0..max_threads {
+        let position = position.clone();
         threads.push(std::thread::spawn(move || {
-            solution_worker(prune, starting);
+            solution_worker(&position, prune, starting);
         }));
     }
     for thread in threads {
@@ -349,7 +405,7 @@ fn play(hard_mode: bool) {
             }
         };
         println!("{}", highlight_term(score, word));
-        if score.correct_places == word.len() {
+        if score.correct_places as usize == word.len() {
             println!("You won!");
             if !hard_mode && is_hard_solution(history) {
                 println!("This also happens to be a hard mode solution.");
@@ -422,6 +478,17 @@ fn main() {
                 }
             };
             find_solutions(prune, starting);
+        }
+        "find-all-scores" => {
+            use crate::game::guess_score;
+            let mut scores = BTreeSet::new();
+            let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
+            for &first in all_words {
+                for &second in words::POSSIBLE_WORDS {
+                    scores.insert(guess_score(first, second).hash);
+                }
+            }
+            println!("the set of all possible scores: {:?}", scores);
         }
         _ => print_help(),
     };

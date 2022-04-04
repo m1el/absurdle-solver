@@ -1,22 +1,67 @@
 use core::cmp::{Ord, PartialOrd, Reverse};
-use std::collections::BTreeMap;
 
 pub const WORD_SIZE: usize = 5;
 pub type Word = [u8; WORD_SIZE];
-pub type Buckets = BTreeMap<WordScore, Vec<Word>>;
+pub struct Buckets {
+    keys: Vec<Option<WordScore>>,
+    storage: Vec<Vec<Word>>,
+}
+impl Buckets {
+    pub fn new() -> Self {
+        Self {
+            keys: vec![None; 256],
+            storage: vec![Vec::new(); 256],
+        }
+    }
+    fn clear(&mut self) {
+        for key in self.keys.iter_mut() {
+            *key = None;
+        }
+        for val in self.storage.iter_mut() {
+            val.clear();
+        }
+    }
+    fn get(&self, score: &WordScore) -> &Vec<Word> {
+        let pos = (score.hash as usize) & 0xff;
+        &self.storage[pos]
+    }
+    fn get_mut(&mut self, score: &WordScore) -> (&mut Option<WordScore>, &mut Vec<Word>) {
+        let pos = (score.hash as usize) & 0xff;
+        (
+            &mut self.keys[pos],
+            &mut self.storage[pos],
+        )
+    }
+}
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LetterScore {
-    Miss,
-    CorrectLetter,
-    CorrectPlace,
+    Miss = 0,
+    CorrectLetter = 1,
+    CorrectPlace = 2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialOrd, Ord)]
 pub struct WordScore {
-    pub correct_places: usize,
-    pub correct_letters: usize,
+    pub correct_places: u8,
+    pub correct_letters: u8,
+    pub hash: u16,
     pub letters: [LetterScore; WORD_SIZE],
+}
+
+impl PartialEq for WordScore {
+    fn eq(&self, other: &Self) -> bool {
+        self.letters == other.letters
+    }
+}
+impl Eq for WordScore { }
+
+use std::hash::{Hash, Hasher};
+impl Hash for WordScore {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u16(self.hash);
+    }
 }
 
 pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
@@ -48,10 +93,17 @@ pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
         }
     }
 
+    let hash = (letters[0] as u16) +
+        (letters[1] as u16) * 3 +
+        (letters[2] as u16) * 9 + 
+        (letters[3] as u16) * 27 +
+        (letters[4] as u16) * 81;
+
     WordScore {
         correct_letters,
         correct_places,
         letters,
+        hash,
     }
 }
 
@@ -65,24 +117,22 @@ pub fn get_rigged_response(
         "The list of secret words cannot be empty"
     );
 
-    for bucket in buckets.values_mut() {
-        bucket.clear();
-    }
+    buckets.clear();
 
     for &word in secret_words.iter() {
         let score = guess_score(word, guess);
-        buckets.entry(score).or_insert_with(Vec::new).push(word);
+        let (key, val) = buckets.get_mut(&score);
+        *key = Some(score);
+        val.push(word);
     }
 
-    let max_key = *buckets
-        .keys()
+    let max_key = buckets.keys.iter().filter_map(|&x| x)
         // Find the bucket with maximum number of entries and minimal score
-        .max_by_key(|&score| (buckets[score].len(), Reverse(score)))
+        .max_by_key(|&score| (buckets.get(&score).len(), Reverse(score)))
         .expect("At least one key must be present, which means max must return Some");
 
-    let worst_bucket = buckets
-        .get_mut(&max_key)
-        .expect("The key comes from the hashmap, so it must be present");
+    let (_key, worst_bucket) = buckets
+        .get_mut(&max_key);
     core::mem::swap(secret_words, worst_bucket);
 
     max_key
