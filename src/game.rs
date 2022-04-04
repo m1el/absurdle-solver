@@ -93,17 +93,19 @@ pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
         }
     }
 
-    let hash = (letters[0] as u16) +
-        (letters[1] as u16) * 3 +
-        (letters[2] as u16) * 9 + 
-        (letters[3] as u16) * 27 +
-        (letters[4] as u16) * 81;
+    const MULTIPLIER: u64 = 1 + (3 << 8) + (9 << 16) + (27 << 24) + (81 << 32);
+    let mut hash = (letters[0] as u64) +
+        ((letters[1] as u64) << 8) +
+        ((letters[2] as u64) << 16) +
+        ((letters[3] as u64) << 24) +
+        ((letters[4] as u64) << 32);
+    hash = (hash.wrapping_mul(MULTIPLIER) >> 32) & 0xff;
 
     WordScore {
         correct_letters,
         correct_places,
         letters,
-        hash,
+        hash: hash as u16,
     }
 }
 
