@@ -99,13 +99,13 @@ pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
         ((letters[2] as u64) << 16) +
         ((letters[3] as u64) << 24) +
         ((letters[4] as u64) << 32);
-    hash = (hash.wrapping_mul(MULTIPLIER) >> 32) & 0xff;
+    hash = hash.wrapping_mul(MULTIPLIER) >> 32;
 
     WordScore {
         correct_letters,
         correct_places,
         letters,
-        hash: hash as u16,
+        hash: (hash & 0xffff) as u16,
     }
 }
 
