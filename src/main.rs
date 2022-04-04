@@ -449,13 +449,13 @@ fn find_all_scores() {
     let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     for &first in all_words {
         for &second in words::POSSIBLE_WORDS {
-            scores.insert(guess_score(first, second).hash);
+            scores.insert(guess_score(first, second));
         }
     }
-    let copy = scores.iter().map(|&x| x & 0xff).collect::<BTreeSet<_>>();
+    let copy = scores.iter().map(|&x| x.hash & 0xff).collect::<BTreeSet<_>>();
     println!("the count of all scores: {} (should be {})",
         scores.len(), 3_usize.pow(WORD_SIZE as u32) - WORD_SIZE);
-    println!("the set of all possible scores: {:?}", scores);
+    // println!("the set of all possible scores: {:?}", scores);
     println!("the hash is a pefect hash for 256 elements: {}",
         copy.len() == scores.len());
 }

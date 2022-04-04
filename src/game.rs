@@ -23,12 +23,14 @@ impl Buckets {
     }
     fn get(&self, score: &WordScore) -> &Vec<Word> {
         let pos = (score.hash as usize) & 0xff;
+        // assert!(self.keys[pos].is_some(), "missing key");
+        // assert!(self.keys[pos] == Some(*score), "hash collision");
         &self.storage[pos]
     }
     fn get_mut(&mut self, score: &WordScore) -> &mut Vec<Word> {
         let pos = (score.hash as usize) & 0xff;
         match self.keys[pos] {
-            Some(key) => assert!(key == *score, "hash collision"),
+            Some(_key) => {}, // assert!(key == *score, "hash collision"),
             None => self.keys[pos] = Some(*score),
         }
         &mut self.storage[pos]
@@ -47,8 +49,8 @@ pub enum LetterScore {
 pub struct WordScore {
     pub correct_places: u8,
     pub correct_letters: u8,
-    pub hash: u16,
     pub letters: [LetterScore; WORD_SIZE],
+    pub hash: u8,
 }
 
 impl PartialEq for WordScore {
@@ -57,13 +59,6 @@ impl PartialEq for WordScore {
     }
 }
 impl Eq for WordScore { }
-
-use std::hash::{Hash, Hasher};
-impl Hash for WordScore {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u16(self.hash);
-    }
-}
 
 pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
     let mut letters = [LetterScore::Miss; WORD_SIZE];
@@ -94,19 +89,17 @@ pub fn guess_score(mut secret: Word, guess: Word) -> WordScore {
         }
     }
 
-    const MULTIPLIER: u64 = 1 + (3 << 8) + (9 << 16) + (27 << 24) + (81 << 32);
-    let mut hash = (letters[0] as u64) +
-        ((letters[1] as u64) << 8) +
-        ((letters[2] as u64) << 16) +
-        ((letters[3] as u64) << 24) +
-        ((letters[4] as u64) << 32);
-    hash = hash.wrapping_mul(MULTIPLIER) >> 32;
+    let hash = (letters[0] as u8) * 81 +
+        (letters[1] as u8) * 27 +
+        (letters[2] as u8) * 9 +
+        (letters[3] as u8) * 3 +
+        (letters[4] as u8) * 1;
 
     WordScore {
         correct_letters,
         correct_places,
         letters,
-        hash: (hash & 0xffff) as u16,
+        hash,
     }
 }
 
