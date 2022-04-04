@@ -442,6 +442,23 @@ fn play(hard_mode: bool) {
     }
 }
 
+fn find_all_scores() {
+    use crate::game::guess_score;
+    let mut scores = BTreeSet::new();
+    let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
+    for &first in all_words {
+        for &second in words::POSSIBLE_WORDS {
+            scores.insert(guess_score(first, second).hash);
+        }
+    }
+    let copy = scores.iter().map(|&x| x & 0xff).collect::<BTreeSet<_>>();
+    println!("the count of all scores: {} (should be {})",
+        scores.len(), 3_usize.pow(WORD_SIZE as u32) - WORD_SIZE);
+    println!("the set of all possible scores: {:?}", scores);
+    println!("the hash is a pefect hash for 256 elements: {}",
+        copy.len() == scores.len());
+}
+
 fn print_help() {
     print!(
         r#"Invalid mode! Please provide a mode as the first command line argument. Available modes are:
@@ -452,6 +469,7 @@ fn print_help() {
 - solution-distr: Take solutions from stdin, print their distribution by the first two starting words.
 - filter-hard: Take solutions from stdin, only print valid hard mode solutions.
 - bench-guess-score: Benchmark how long it takes to calculate score for one word guess.
+- find-all-scores: A test function to check whether the hash function is fitting.
 "#
     );
 }
@@ -506,20 +524,7 @@ fn main() {
             };
             find_solutions(prune, starting);
         }
-        "find-all-scores" => {
-            use crate::game::guess_score;
-            let mut scores = BTreeSet::new();
-            let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
-            for &first in all_words {
-                for &second in words::POSSIBLE_WORDS {
-                    scores.insert(guess_score(first, second).hash);
-                }
-            }
-            let copy = scores.iter().map(|&x| x & 0xff).collect::<BTreeSet<_>>();
-            println!("the set of all possible scores: {:?}", scores);
-            println!("the hash is a pefect hash for 256 elements: {}",
-                copy.len() == scores.len());
-        }
+        "find-all-scores" => find_all_scores(),
         _ => print_help(),
     };
 }
