@@ -488,7 +488,10 @@ fn main() {
                     scores.insert(guess_score(first, second).hash);
                 }
             }
+            let copy = scores.iter().map(|&x| x & 0xff).collect::<BTreeSet<_>>();
             println!("the set of all possible scores: {:?}", scores);
+            println!("the hash is a pefect hash for 256 elements: {}",
+                copy.len() == scores.len());
         }
         _ => print_help(),
     };
