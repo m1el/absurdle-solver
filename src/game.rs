@@ -25,12 +25,13 @@ impl Buckets {
         let pos = (score.hash as usize) & 0xff;
         &self.storage[pos]
     }
-    fn get_mut(&mut self, score: &WordScore) -> (&mut Option<WordScore>, &mut Vec<Word>) {
+    fn get_mut(&mut self, score: &WordScore) -> &mut Vec<Word> {
         let pos = (score.hash as usize) & 0xff;
-        (
-            &mut self.keys[pos],
-            &mut self.storage[pos],
-        )
+        match self.keys[pos] {
+            Some(key) => assert!(key == *score, "hash collision"),
+            None => self.keys[pos] = Some(*score),
+        }
+        &mut self.storage[pos]
     }
 }
 
@@ -123,8 +124,7 @@ pub fn get_rigged_response(
 
     for &word in secret_words.iter() {
         let score = guess_score(word, guess);
-        let (key, val) = buckets.get_mut(&score);
-        *key = Some(score);
+        let val = buckets.get_mut(&score);
         val.push(word);
     }
 
@@ -133,8 +133,7 @@ pub fn get_rigged_response(
         .max_by_key(|&score| (buckets.get(&score).len(), Reverse(score)))
         .expect("At least one key must be present, which means max must return Some");
 
-    let (_key, worst_bucket) = buckets
-        .get_mut(&max_key);
+    let worst_bucket = buckets.get_mut(&max_key);
     core::mem::swap(secret_words, worst_bucket);
 
     max_key
