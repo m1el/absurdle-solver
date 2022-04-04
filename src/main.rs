@@ -90,8 +90,9 @@ impl<'a> DepthSearch<'a> {
             // Hoping for the codegen to replace this with a constant
             let word_count = all_words.count();
 
-            assert!(MAX_SEARCH_DEPTH == PRUNE_DEPTH + 1,
-                "Requirement for calculating combinations for pruned words.");
+            #[allow(clippy::assertions_on_constants)]
+            {assert!(MAX_SEARCH_DEPTH == PRUNE_DEPTH + 1,
+                "Requirement for calculating combinations for pruned words.")};
             // Since there are 2 words in the path, there are 2 fewer words
             // to be explored than the total number of words.
             self.stats.pruned.fetch_add(word_count - PRUNE_DEPTH, AtomicOrdering::Relaxed);
@@ -99,7 +100,7 @@ impl<'a> DepthSearch<'a> {
         }
 
         assert!(self.path.len() <= MAX_SEARCH_DEPTH,
-            "Rath length should not exceed MAX_SEARCH_DEPTH");
+            "Path length should not exceed MAX_SEARCH_DEPTH");
         if self.path.len() == MAX_SEARCH_DEPTH {
             // Check that there is only one remaining word left, and call
             // the sink with the solution path.
@@ -218,7 +219,7 @@ fn solution_distribution() {
         for word in words.take(2) {
             get_rigged_response(&mut buckets, &mut remaining, word);
         }
-        remaining.sort();
+        remaining.sort_unstable();
 
         *path_counts.entry(remaining.len()).or_insert(0) += 1;
 
