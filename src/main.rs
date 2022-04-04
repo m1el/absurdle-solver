@@ -1,4 +1,5 @@
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::Arc;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod game;
@@ -24,7 +25,24 @@ fn path_to_string(path: &[Word]) -> String {
     response
 }
 
-struct DepthSearch {
+struct DepthSearchStats {
+    /// Counter for pruned words.
+    pruned: AtomicUsize,
+    /// Counter for processed words.
+    processed: AtomicUsize,
+    running: AtomicUsize,
+}
+impl DepthSearchStats {
+    fn new() -> Self {
+        Self {
+            pruned: AtomicUsize::new(0),
+            processed: AtomicUsize::new(0),
+            running: AtomicUsize::new(0),
+        }
+    }
+}
+
+struct DepthSearch<'a> {
     /// Re-usable storage for `get_rigged_response`
     buckets: Buckets,
     /// Current list of remaining words for the recursive descent
@@ -33,13 +51,15 @@ struct DepthSearch {
     path: Vec<Word>,
     /// Prune size at depth 2
     prune: usize,
+    /// statistics
+    stats: &'a DepthSearchStats,
 }
 
-impl DepthSearch {
+impl<'a> DepthSearch<'a> {
     /// Construct new depth search, with given parameters.
     /// This function will take care of reducing the word list according to
     /// the provided path.
-    pub fn new(word_list: &[Word], path: Vec<Word>, prune: usize) -> Self {
+    pub fn new(word_list: &[Word], path: Vec<Word>, prune: usize, stats: &'a DepthSearchStats) -> Self {
         let mut remaining = word_list.to_vec();
         let mut buckets = Buckets::new();
         for &guess in path.iter() {
@@ -50,6 +70,7 @@ impl DepthSearch {
             path,
             remaining,
             prune,
+            stats,
         }
     }
 
@@ -64,9 +85,6 @@ impl DepthSearch {
         /// to be valid, the search depth is one less than the solution length.
         const MAX_SEARCH_DEPTH: usize = EXPECTED_PATH_LEN - 1;
 
-        /// Global counter for pruned words. We're using this for stats.
-        static PRUNED: AtomicUsize = AtomicUsize::new(0);
-
         let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
         if self.path.len() == PRUNE_DEPTH && self.remaining.len() > self.prune {
             // Hoping for the codegen to replace this with a constant
@@ -76,7 +94,7 @@ impl DepthSearch {
                 "Requirement for calculating combinations for pruned words.");
             // Since there are 2 words in the path, there are 2 fewer words
             // to be explored than the total number of words.
-            PRUNED.fetch_add(word_count - PRUNE_DEPTH, AtomicOrdering::Relaxed);
+            self.stats.pruned.fetch_add(word_count - PRUNE_DEPTH, AtomicOrdering::Relaxed);
             return;
         }
 
@@ -91,20 +109,7 @@ impl DepthSearch {
                 self.path.pop();
             }
 
-            // Global counter of explored paths.
-            static COUNTER: AtomicUsize = AtomicUsize::new(0);
-            let count = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
-            // Print stats every ~million explored paths.
-            if count & 0xfffff == 0 {
-                let pruned = PRUNED.load(AtomicOrdering::Relaxed);
-                eprintln!(
-                    "processed={} pruned={} last_path={} remaining={}",
-                    count,
-                    pruned,
-                    path_to_string(&self.path),
-                    self.remaining.len()
-                );
-            }
+            self.stats.processed.fetch_add(1, AtomicOrdering::Relaxed);
         // If we haven't reached the max search depth, descend some more.
         } else {
             // Save the remaining words since a recursive call will mutate it
@@ -130,7 +135,12 @@ impl DepthSearch {
     }
 }
 
-fn solution_worker(position: &AtomicUsize, prune: usize, start: Option<Word>) {
+fn solution_worker(
+    stats: &DepthSearchStats,
+    position: &AtomicUsize,
+    prune: usize,
+    start: Option<Word>,
+) {
     use core::iter::once;
     let all_words = words::POSSIBLE_WORDS.iter().chain(words::IMPOSSIBLE_WORDS);
     loop {
@@ -151,9 +161,10 @@ fn solution_worker(position: &AtomicUsize, prune: usize, start: Option<Word>) {
             println!("SOLUTION = {}", path_to_string(path));
         }
         // Run the depth first search, printing all the 4-word solutions
-        DepthSearch::new(words::POSSIBLE_WORDS, path, prune)
+        DepthSearch::new(words::POSSIBLE_WORDS, path, prune, stats)
             .descend_path(&print_path);
     }
+    stats.running.fetch_sub(1, AtomicOrdering::Relaxed);
 }
 
 fn distr_worker(position: &AtomicUsize) -> BTreeMap<usize, usize> {
@@ -226,7 +237,7 @@ fn solution_distribution() {
 }
 
 fn calculate_two_word_distribution() {
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Mutex};
     let counts = Arc::new(Mutex::new(BTreeMap::new()));
     let max_threads = std::thread::available_parallelism()
         .map(|x| x.get())
@@ -325,7 +336,6 @@ fn benchmark_guess_score() {
 }
 
 fn find_solutions(prune: usize, starting: Option<Word>) {
-    use std::sync::Arc;
     let max_threads = std::thread::available_parallelism()
         .map(|x| x.get())
         .unwrap_or(1);
@@ -334,12 +344,29 @@ fn find_solutions(prune: usize, starting: Option<Word>) {
     eprintln!("running with {} threads", max_threads);
     let mut threads = Vec::new();
     let position = Arc::new(AtomicUsize::new(0));
+    let stats = Arc::new(DepthSearchStats::new());
     for _ in 0..max_threads {
         let position = position.clone();
+        let stats = stats.clone();
+        stats.running.fetch_add(1, AtomicOrdering::Relaxed);
         threads.push(std::thread::spawn(move || {
-            solution_worker(&position, prune, starting);
+            solution_worker(&*stats, &position, prune, starting);
         }));
     }
+    threads.push(std::thread::spawn(move || {
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        while stats.running.load(AtomicOrdering::Relaxed) != 0 {
+            std::thread::sleep(Duration::from_millis(1000));
+            let pruned = stats.pruned.load(AtomicOrdering::Relaxed);
+            let processed = stats.processed.load(AtomicOrdering::Relaxed);
+            let pps = (processed as f64) / start.elapsed().as_secs_f64();
+            eprintln!(
+                "processed={} pruned={} per second={}",
+                processed, pruned, pps,
+            );
+        }
+    }));
     for thread in threads {
         thread.join().expect("some threads have crashed");
     }
