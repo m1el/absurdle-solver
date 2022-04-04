@@ -362,7 +362,7 @@ fn find_solutions(prune: usize, starting: Option<Word>) {
             let processed = stats.processed.load(AtomicOrdering::Relaxed);
             let pps = (processed as f64) / start.elapsed().as_secs_f64();
             eprintln!(
-                "processed={} pruned={} per second={}",
+                "processed={} pruned={} per second={:.2}",
                 processed, pruned, pps,
             );
         }
