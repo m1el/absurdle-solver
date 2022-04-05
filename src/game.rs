@@ -1,5 +1,5 @@
-use core::fmt;
 use core::cmp::{Ord, PartialOrd, Reverse};
+use core::fmt;
 
 /// Word length.
 pub const WORD_LENGTH: usize = 5;
@@ -80,11 +80,11 @@ pub fn guess_score(mut secret: Word, guess: Word) -> GuessScore {
     // values, we can pack five `LetterScore`s using base-3 representation
     // into a number [0..3**5), or [0..243). This value is then used as
     // an index into the storage array.
-    let hash = (letters[0] as u8) * 81 +
-        (letters[1] as u8) * 27 +
-        (letters[2] as u8) * 9 +
-        (letters[3] as u8) * 3 +
-        (letters[4] as u8);
+    let hash = (letters[0] as u8) * 81
+        + (letters[1] as u8) * 27
+        + (letters[2] as u8) * 9
+        + (letters[3] as u8) * 3
+        + (letters[4] as u8);
 
     GuessScore {
         correct_letters,
@@ -172,7 +172,10 @@ pub fn get_rigged_response(
     }
 
     // Find the bucket with maximum number of entries or a "minimal" score
-    let max_key = buckets.keys.iter().filter_map(|&x| x)
+    let max_key = buckets
+        .keys
+        .iter()
+        .filter_map(|&x| x)
         .max_by_key(|&score| (buckets.get(&score).len(), Reverse(score)))
         .expect("At least one key must be present, which means max must return Some");
 
@@ -204,7 +207,8 @@ impl fmt::Display for GameError {
                 write!(f, "the word must use char '{}'", chr as char)
             }
             GameError::MustUseCharAt(chr, pos) => {
-                write!(f, "the word must use char '{}' at position {}", chr as char, pos)
+                write!(f, "the word must use char '{}' at position {}",
+                    chr as char, pos)
             }
             GameError::MustNotUseChar(chr) => {
                 write!(f, "the word must not use char '{}'", chr as char)
@@ -212,7 +216,7 @@ impl fmt::Display for GameError {
         }
     }
 }
-impl std::error::Error for GameError { }
+impl std::error::Error for GameError {}
 
 pub struct RegularMode {
     buckets: DSHashMap,
@@ -266,7 +270,7 @@ impl HardMode {
             req_place: Vec::new(),
         }
     }
-    /// Process 
+    /// Process
     pub fn update(&mut self, word: Word) -> Result<GuessScore, GameError> {
         if !(self.allowed)(word) {
             return Err(GameError::WordNotAllowed);
@@ -300,8 +304,11 @@ impl HardMode {
         for (index, (chr, score)) in word.iter().copied().zip(score.letters).enumerate() {
             match score {
                 LetterScore::Miss => {
-                    if !self.req_chars.contains(&chr) &&
-                        !self.req_place.iter().any(|&(req, _)| chr == req) {
+                    // Add missing chars if they were not used
+                    if !self.req_chars.contains(&chr)
+                        && !self.miss_chars.contains(&chr)
+                        && !self.req_place.iter().any(|&(req, _)| chr == req)
+                    {
                         self.miss_chars.push(chr);
                     }
                 }
@@ -361,7 +368,7 @@ pub fn is_hard_solution(words: &[Word]) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::{*};
+    use super::*;
     use crate::words;
 
     #[test]
@@ -409,16 +416,18 @@ mod test {
         );
     }
     fn valid_guess(word: Word) -> bool {
-        words::POSSIBLE_WORDS.contains(&word)
-            || words::IMPOSSIBLE_WORDS.contains(&word)
+        words::POSSIBLE_WORDS.contains(&word) || words::IMPOSSIBLE_WORDS.contains(&word)
     }
 
     #[test]
     fn check_regular_game() {
         use LetterScore::*;
         let mut game = Game::new(words::POSSIBLE_WORDS.into(), valid_guess, false);
-        assert_eq!(game.update(*b"ZZZZZ"), Err(GameError::WordNotAllowed),
-            "must reject non-listed words");
+        assert_eq!(
+            game.update(*b"ZZZZZ"),
+            Err(GameError::WordNotAllowed),
+            "must reject non-listed words"
+        );
         let path = [
             (*b"LIDAR", [Miss; WORD_LENGTH]),
             (*b"STONY", [Miss, CorrectLetter, Miss, Miss, Miss]),
@@ -435,15 +444,24 @@ mod test {
     fn check_hard_game() {
         use LetterScore::*;
         let mut game = Game::new(words::POSSIBLE_WORDS.into(), valid_guess, true);
-        assert_eq!(game.update(*b"ZZZZZ"), Err(GameError::WordNotAllowed),
-            "must reject non-listed words");
+        assert_eq!(
+            game.update(*b"ZZZZZ"),
+            Err(GameError::WordNotAllowed),
+            "must reject non-listed words"
+        );
 
         let score = game.update(*b"AEONS").expect("should accept a valid move");
         assert_eq!(score.letters, [Miss, CorrectLetter, Miss, Miss, Miss]);
-        assert_eq!(game.update(*b"ADORN"), Err(GameError::MustNotUseChar(b'A')),
-            "must reject words with chars that got rejected");
-        assert_eq!(game.update(*b"CRUFT"), Err(GameError::MustUseChar(b'E')),
-            "must reject words with chars that should be present");
+        assert_eq!(
+            game.update(*b"ADORN"),
+            Err(GameError::MustNotUseChar(b'A')),
+            "must reject words with chars that got rejected"
+        );
+        assert_eq!(
+            game.update(*b"CRUFT"),
+            Err(GameError::MustUseChar(b'E')),
+            "must reject words with chars that should be present"
+        );
 
         let _ = game.update(*b"BRIDE").expect("should accept a valid move");
         let _ = game.update(*b"CLEEP").expect("should accept a valid move");
@@ -459,8 +477,11 @@ mod test {
             &[*b"AGLEY", *b"TRONK", *b"CHIBS", *b"VIVID"],
         ];
         for (index, solution) in hard_solutions.into_iter().enumerate() {
-            assert!(is_hard_solution(solution),
-                "should accept hard solution {}", index);
+            assert!(
+                is_hard_solution(solution),
+                "should accept hard solution {}",
+                index
+            );
         }
 
         let soft_solutions = [
@@ -469,8 +490,11 @@ mod test {
             &[*b"ADORN", *b"YULES", *b"CHIRT", *b"FEMME"],
         ];
         for (index, solution) in soft_solutions.into_iter().enumerate() {
-            assert!(!is_hard_solution(solution),
-                "should not accept soft solution {}", index);
+            assert!(
+                !is_hard_solution(solution),
+                "should not accept soft solution {}",
+                index
+            );
         }
     }
 }

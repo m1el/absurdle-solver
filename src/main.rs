@@ -1,10 +1,10 @@
 use core::fmt;
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-use std::sync::Arc;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
-mod game;
 mod depth_search;
+mod game;
 mod words;
 
 /// The requested solution length. We're looking for 4-word Absurdle solutions.
@@ -13,8 +13,8 @@ pub const EXPECTED_PATH_LEN: usize = 4;
 /// Lazy way of combining all the errors into a single type.
 type LazyResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-use crate::game::{*};
 use crate::depth_search::{DepthSearch, DepthSearchStats};
+use crate::game::*;
 
 /// Parse command line options and run the corresponding sub-command.
 /// The parsing could have been simplified by using a crate. However, that would
@@ -129,16 +129,13 @@ enum ParseWordError {
 impl fmt::Display for ParseWordError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            ParseWordError::BadWordLength => {
-                f.write_str("Word length incorrect")
-            }
-            ParseWordError::BadChar => {
-                f.write_str("Word contains a non-letter")
-            }
+            ParseWordError::BadWordLength => f.write_str("Word length incorrect"),
+            ParseWordError::BadChar => f.write_str("Word contains a non-letter"),
         }
     }
 }
-impl std::error::Error for ParseWordError { }
+
+impl std::error::Error for ParseWordError {}
 
 /// Parse a word from a string.
 fn parse_word(s: &str) -> Result<Word, ParseWordError> {
@@ -303,10 +300,10 @@ fn path_to_string(path: &[Word]) -> String {
     response
 }
 
-/// Calculate the distribution of remaining secret words count for 
+/// Calculate the distribution of remaining secret words count for
 /// all combinations of two starting words.
 fn calculate_two_word_distribution() {
-    use std::sync::{Mutex};
+    use std::sync::Mutex;
     let counts = Arc::new(Mutex::new(BTreeMap::new()));
     let max_threads = std::thread::available_parallelism()
         .map(|x| x.get())
@@ -452,7 +449,6 @@ fn filter_hard_solutions() {
     }
 }
 
-
 /// Benchmark `guess_score` function
 fn benchmark_guess_score() {
     let start = std::time::Instant::now();
@@ -482,9 +478,14 @@ fn find_all_scores() {
         }
     }
     let hashes = scores.iter().map(|&x| x.hash).collect::<BTreeSet<_>>();
-    println!("the count of all scores: {} (should be {})",
-        scores.len(), 3_usize.pow(WORD_LENGTH as u32) - WORD_LENGTH);
+    println!(
+        "the count of all scores: {} (should be {})",
+        scores.len(),
+        3_usize.pow(WORD_LENGTH as u32) - WORD_LENGTH
+    );
     // println!("the set of all possible scores: {:?}", scores);
-    println!("the hash is a pefect hash for 256 elements: {}",
-        hashes.len() == scores.len());
+    println!(
+        "the hash is a pefect hash for 256 elements: {}",
+        hashes.len() == scores.len()
+    );
 }
