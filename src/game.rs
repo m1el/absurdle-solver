@@ -3,6 +3,7 @@ use core::fmt;
 
 /// Word length.
 pub const WORD_LENGTH: usize = 5;
+
 /// Type alias used for a word.
 /// We choose fixed length array representation since it's one of the most
 /// compact representations. Using a &str or String would require 2 or more
@@ -13,7 +14,7 @@ pub type Word = [u8; WORD_LENGTH];
 /// The score of an individual letter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LetterScore {
-    /// This letter is not needed for the secret score
+    /// This letter is not needed for the secret word
     Miss = 0,
     /// This is a correct letter, but it's located at a different place
     CorrectLetter = 1,
@@ -116,6 +117,7 @@ impl DSHashMap {
             values: vec![Vec::new(); 256],
         }
     }
+
     /// Clear the hash map. This operation preserves all allocations.
     fn clear(&mut self) {
         for key in self.keys.iter_mut() {
@@ -125,6 +127,7 @@ impl DSHashMap {
             val.clear();
         }
     }
+
     /// Get value by key.
     fn get(&self, score: &GuessScore) -> &Vec<Word> {
         let pos = score.hash as usize;
@@ -132,6 +135,7 @@ impl DSHashMap {
         debug_assert!(self.keys[pos] == Some(*score), "hash collision");
         &self.values[pos]
     }
+
     /// Get mutable reference to value by key
     fn get_mut(&mut self, score: &GuessScore) -> &mut Vec<Word> {
         let pos = score.hash as usize;
@@ -197,6 +201,7 @@ pub enum GameError {
     MustUseCharAt(u8, u8),
     MustNotUseChar(u8),
 }
+
 impl fmt::Display for GameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
@@ -216,6 +221,7 @@ impl fmt::Display for GameError {
         }
     }
 }
+
 impl std::error::Error for GameError {}
 
 pub struct RegularMode {
@@ -233,6 +239,7 @@ impl RegularMode {
             allowed,
         }
     }
+
     /// Update the game according to game input
     pub fn update(&mut self, word: Word) -> Result<GuessScore, GameError> {
         if !(self.allowed)(word) {
@@ -270,7 +277,8 @@ impl HardMode {
             req_place: Vec::new(),
         }
     }
-    /// Process
+
+    /// Update the game according to game input
     pub fn update(&mut self, word: Word) -> Result<GuessScore, GameError> {
         if !(self.allowed)(word) {
             return Err(GameError::WordNotAllowed);
@@ -296,7 +304,7 @@ impl HardMode {
             }
         }
 
-        // update hard mode requirements
+        // Update hard mode requirements
         let score = get_rigged_response(&mut self.buckets, &mut self.remaining, word);
         self.req_chars.clear();
         self.req_place.clear();
@@ -337,6 +345,7 @@ impl Game {
             Game::Regular(RegularMode::new(remaining, allowed))
         }
     }
+
     pub fn update(&mut self, word: Word) -> Result<GuessScore, GameError> {
         match self {
             Game::Regular(regular) => regular.update(word),
@@ -351,6 +360,7 @@ pub fn is_hard_solution(words: &[Word]) -> bool {
     fn all_allowed(_word: Word) -> bool {
         true
     }
+
     let mut words = words.iter();
     // Assume the last word is the solution, pop it off the end to use as secret.
     let target = *words.next_back().expect("at least one word is expected");
@@ -363,6 +373,7 @@ pub fn is_hard_solution(words: &[Word]) -> bool {
             return false;
         }
     }
+
     true
 }
 
@@ -415,6 +426,7 @@ mod test {
             "The score must prioritize correct places first"
         );
     }
+
     fn valid_guess(word: Word) -> bool {
         words::POSSIBLE_WORDS.contains(&word) || words::IMPOSSIBLE_WORDS.contains(&word)
     }
