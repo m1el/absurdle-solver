@@ -50,14 +50,14 @@ fn main() {
 fn print_help() {
     print!(
         r#"Invalid mode! Please provide a mode as the first command line argument. Available modes are:
-- play [hard]: Play the game interactively in the console. Optionally add "hard" to play hard mode.
+- play [hard]: Play the game interactively in the console.  Optionally add "hard" to play hard mode.
   Hard mode requires you to strictly use all the information previously acquired in the game.
-- find-solutions [--prune <number>] [<starting word>]: Find 4-word solutions. Optionally provide with the starting word.
-- two-word-distr: Calculate the distribution of remaining words for each pair of two starting words.
+- find-solutions [--prune <number>] [<starting word>]: Find 4-word solutions.  Optionally provide with the starting word.
+- two-word-distr: Calculate the distribution of remaining pool sizes for all combinations of two starting words.
 - solution-distr: Take solutions from stdin, print their distribution by the first two starting words.
 - filter-hard: Take solutions from stdin, only print valid hard mode solutions.
 - bench-guess-score: Benchmark how long it takes to calculate score for one word guess.
-- find-all-scores: A test function to check whether the hash function is fitting.
+- find-all-scores: A test function to check whether the hash function is fitting for the purpose.
 "#
     );
 }
