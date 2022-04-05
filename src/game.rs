@@ -26,7 +26,7 @@ pub enum LetterScore {
 /// How many letters were correct, how many letters were at the right place,
 /// and the state of each individual letter.
 /// The order of fields dictates the priority of comparing the scores.
-/// `correct_places`, `correct_letters` and `letters` are compared be in that order.
+/// `correct_places`, `correct_letters` and `letters` are compared in that order.
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]
 pub struct GuessScore {
     /// The number of letters correctly guessed at the right place
